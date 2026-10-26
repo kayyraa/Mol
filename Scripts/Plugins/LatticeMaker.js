@@ -3,7 +3,7 @@
         Diamond: { Label: "Diamond (C)", Desc: "Tetrahedral carbon lattice", Element: "C", Scale: 72, Ionize: false },
         Graphite: { Label: "Graphite (C)", Desc: "Hexagonal carbon sheets", Element: "C", Scale: 70, Ionize: false },
         NaCl: { Label: "Rock salt (NaCl)", Desc: "FCC ionic lattice", Element: null, Scale: 95, Ionize: true },
-        Fcc: { Label: "FCC metal", Desc: "Face-centered cubic", Element: "Cu", Scale: 85, Ionize: false },
+        Fcc: { Label: "FCC metal", Desc: "Face-centered cubic", Element: "Cu", Scale: 95, Ionize: false },
         Bcc: { Label: "BCC metal", Desc: "Body-centered cubic", Element: "Fe", Scale: 90, Ionize: false },
         Sc: { Label: "Simple cubic", Desc: "Primitive cubic cell", Element: "Po", Scale: 100, Ionize: false }
     };
@@ -130,7 +130,7 @@
             Type === "Diamond" ? 0.5 :
             Type === "NaCl" ? 1.05 :
             Type === "Bcc" ? 0.95 :
-            Type === "Fcc" ? 0.78 :
+            Type === "Fcc" ? 0.76 :
             1.05
         );
 
@@ -157,9 +157,9 @@
             }
         }
 
-        Api.SetTemperature(State.Temp ?? 0.08);
+        Api.SetTemperature(State.Temp ?? 0.05);
         Api.SetFreeEnergy(0);
-        Api.Settle(150);
+        Api.Settle(220);
 
         const R = Api.GetRenderer();
         if (R) {

@@ -65,6 +65,7 @@ async function BootRenderer() {
     globalThis.CanvasRenderer = CanvasRenderer;
     CanvasRenderer.Temperature = 0.05;
     CanvasRenderer.FreeEnergy = 0;
+    CanvasRenderer.Friction = 0.45;
     CanvasRenderer.SettleFrames = 240;
     if (typeof Prefs !== "undefined") {
         if (Prefs.ShakeIntensity != null) CanvasRenderer.ShakeIntensity = Prefs.ShakeIntensity;
@@ -109,7 +110,7 @@ let ThrowVelocity = [0, 0, 0];
 let DragSamples = [];
 const DragSampleWindowMs = 60;
 
-const UiSelector = ".Area, .ContextMenu, .Tooltip, .PluginWidget, .PluginDock, .DropdownMenu, .MobileBar, .TouchControls, button, select, input, label, textarea, canvas.WGraph";
+const UiSelector = ".Area, .ContextMenu, .Tooltip, .PluginWidget, .PluginDock, .DropdownMenu, .MobileBar, .TouchControls, .SpawnMenu, button, select, input, label, textarea, canvas.WGraph";
 
 const IsTouchDevice = (typeof window !== "undefined") && (
     "ontouchstart" in window ||
@@ -442,16 +443,52 @@ window.addEventListener("mousemove", (Event) => {
     }
 });
 
+function IsTextEntryFocused() {
+    const El = document.activeElement;
+    if (!El) return false;
+    const Tag = (El.tagName || "").toLowerCase();
+    if (Tag === "input" || Tag === "textarea" || Tag === "select") return true;
+    if (El.isContentEditable) return true;
+    if (El.closest && El.closest("[contenteditable='true']")) return true;
+    return false;
+}
+
+function ClearMovementKeys() {
+    for (const Code of ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight"]) {
+        KeyStates[Code] = false;
+    }
+}
+
 window.addEventListener("keydown", (Event) => {
+    if (IsTextEntryFocused()) {
+        if (Event.code === "Escape") {
+            HideContextMenu();
+            CloseDisplayMenu();
+            const SpawnMenu = document.getElementById("SpawnMenu");
+            if (SpawnMenu) SpawnMenu.hidden = true;
+            document.activeElement?.blur?.();
+        }
+        return;
+    }
     KeyStates[Event.code] = true;
     if (Event.code === "Escape") {
         HideContextMenu();
         CloseDisplayMenu();
+        const SpawnMenu = document.getElementById("SpawnMenu");
+        if (SpawnMenu) {
+            SpawnMenu.hidden = true;
+            const Opts = document.getElementById("SpawnOptsBtn");
+            if (Opts) Opts.setAttribute("aria-expanded", "false");
+        }
     }
 });
 
 window.addEventListener("keyup", (Event) => {
     KeyStates[Event.code] = false;
+});
+
+document.addEventListener("focusin", (Event) => {
+    if (IsTextEntryFocused()) ClearMovementKeys();
 });
 
 if (ContextMenu) {
@@ -656,17 +693,41 @@ let JoystickPointer = null;
 let VerticalSmoothed = 0;
 const VerticalPointers = new Map();
 
+let TouchSensitivity = 1;
+
 function EnableTouchUi() {
     if (!TouchControls) return;
     document.body.classList.add("TouchUi");
     TouchControls.hidden = false;
+    TouchControls.setAttribute("aria-hidden", "false");
 }
 
-if (IsTouchDevice || (window.matchMedia && window.matchMedia("(pointer: coarse)").matches)) EnableTouchUi();
+function DisableTouchUi() {
+    document.body.classList.remove("TouchUi");
+    if (TouchControls) {
+        TouchControls.hidden = true;
+        TouchControls.setAttribute("aria-hidden", "true");
+    }
+    ResetJoystick();
+    VerticalPointers.clear();
+    if (TouchUpButton) TouchUpButton.classList.remove("Active");
+    if (TouchDownButton) TouchDownButton.classList.remove("Active");
+    VerticalSmoothed = 0;
+    JoystickSmoothed[0] = 0;
+    JoystickSmoothed[1] = 0;
+}
 
-window.addEventListener("pointerdown", (Event) => {
-    if (Event.pointerType === "touch") EnableTouchUi();
-}, { passive: true });
+globalThis.MolTouch = {
+    Enable: EnableTouchUi,
+    Disable: DisableTouchUi,
+    IsEnabled() { return document.body.classList.contains("TouchUi"); },
+    GetSensitivity() { return TouchSensitivity; },
+    SetSensitivity(V) { TouchSensitivity = Math.max(0.25, Math.min(2.5, Number(V) || 1)); },
+    GetJoystick() { return JoystickSmoothed; },
+    GetVertical() { return VerticalSmoothed; }
+};
+
+// Do not auto-show; open the Touch Controls plugin instead.
 
 function ResetJoystick() {
     JoystickPointer = null;
@@ -770,12 +831,14 @@ const UpdateCamera = () => {
     const Forward = GetCameraForward();
     const Right = [-Math.sin(CurrentYaw), 0, Math.cos(CurrentYaw)];
     let MX = 0, MY = 0, MZ = 0;
-    if (KeyStates["KeyW"]) { MX += Forward[0] * CameraAcceleration; MY += Forward[1] * CameraAcceleration; MZ += Forward[2] * CameraAcceleration; }
-    if (KeyStates["KeyS"]) { MX -= Forward[0] * CameraAcceleration; MY -= Forward[1] * CameraAcceleration; MZ -= Forward[2] * CameraAcceleration; }
-    if (KeyStates["KeyD"]) { MX += Right[0] * CameraAcceleration; MY += Right[1] * CameraAcceleration; MZ += Right[2] * CameraAcceleration; }
-    if (KeyStates["KeyA"]) { MX -= Right[0] * CameraAcceleration; MY -= Right[1] * CameraAcceleration; MZ -= Right[2] * CameraAcceleration; }
-    if (KeyStates["Space"]) MY += CameraAcceleration;
-    if (KeyStates["ShiftLeft"] || KeyStates["ShiftRight"]) MY -= CameraAcceleration;
+    if (!IsTextEntryFocused()) {
+        if (KeyStates["KeyW"]) { MX += Forward[0] * CameraAcceleration; MY += Forward[1] * CameraAcceleration; MZ += Forward[2] * CameraAcceleration; }
+        if (KeyStates["KeyS"]) { MX -= Forward[0] * CameraAcceleration; MY -= Forward[1] * CameraAcceleration; MZ -= Forward[2] * CameraAcceleration; }
+        if (KeyStates["KeyD"]) { MX += Right[0] * CameraAcceleration; MY += Right[1] * CameraAcceleration; MZ += Right[2] * CameraAcceleration; }
+        if (KeyStates["KeyA"]) { MX -= Right[0] * CameraAcceleration; MY -= Right[1] * CameraAcceleration; MZ -= Right[2] * CameraAcceleration; }
+        if (KeyStates["Space"]) MY += CameraAcceleration;
+        if (KeyStates["ShiftLeft"] || KeyStates["ShiftRight"]) MY -= CameraAcceleration;
+    }
 
     JoystickSmoothed[0] += (JoystickInput[0] - JoystickSmoothed[0]) * 0.25;
     JoystickSmoothed[1] += (JoystickInput[1] - JoystickSmoothed[1]) * 0.25;
@@ -784,12 +847,13 @@ const UpdateCamera = () => {
     if (Math.abs(JoystickSmoothed[1]) < 0.001) JoystickSmoothed[1] = 0;
     if (Math.abs(VerticalSmoothed) < 0.001) VerticalSmoothed = 0;
 
-    const Jx = JoystickSmoothed[0] * CameraAcceleration;
-    const Jy = JoystickSmoothed[1] * CameraAcceleration;
+    const TouchScale = (typeof TouchSensitivity === "number" ? TouchSensitivity : 1);
+    const Jx = JoystickSmoothed[0] * CameraAcceleration * TouchScale;
+    const Jy = JoystickSmoothed[1] * CameraAcceleration * TouchScale;
     MX += Forward[0] * Jy + Right[0] * Jx;
     MY += Forward[1] * Jy + Right[1] * Jx;
     MZ += Forward[2] * Jy + Right[2] * Jx;
-    MY += VerticalSmoothed * CameraAcceleration;
+    MY += VerticalSmoothed * CameraAcceleration * (typeof TouchSensitivity === "number" ? TouchSensitivity : 1);
 
     CameraVelocity[0] = (CameraVelocity[0] + MX) * CameraDamping;
     CameraVelocity[1] = (CameraVelocity[1] + MY) * CameraDamping;
@@ -994,8 +1058,8 @@ const Prefs = {
     ImpulseStrength: 8,
     ShakeIntensity: 1.0,
     SpawnSpeed: 0.5,
-    BoundX: 400,
-    BoundY: 400,
+    BoundX: 300,
+    BoundY: 300,
     BoundZ: 300
 };
 
@@ -1275,7 +1339,18 @@ SyncHierarchyForceButtons();
 
 const AtomSelect = document.getElementById("AtomSelect");
 const SpawnAtomBtn = document.getElementById("SpawnAtomBtn");
+const SpawnOptsBtn = document.getElementById("SpawnOptsBtn");
+const SpawnMenu = document.getElementById("SpawnMenu");
 const SpawnCountInput = document.getElementById("SpawnCount");
+const SpawnPatternEl = document.getElementById("SpawnPattern");
+const SpawnSpacingEl = document.getElementById("SpawnSpacing");
+const SpawnSpacingVal = document.getElementById("SpawnSpacingVal");
+const SpawnSpeedEl = document.getElementById("SpawnSpeed");
+const SpawnSpeedVal = document.getElementById("SpawnSpeedVal");
+const SpawnOriginEl = document.getElementById("SpawnOrigin");
+const SpawnRandomVelEl = document.getElementById("SpawnRandomVel");
+const SpawnChargeEl = document.getElementById("SpawnCharge");
+const SpawnSettleEl = document.getElementById("SpawnSettle");
 
 if (AtomSelect && typeof Atoms !== "undefined") {
     const Common = ["H","C","N","O","F","Na","Mg","Si","P","S","Cl","Fe","Cu","Zn","Br","I","Au","U"];
@@ -1293,43 +1368,152 @@ if (AtomSelect && typeof Atoms !== "undefined") {
     AtomSelect.value = "C";
 }
 
-let SpawnClusterCenter = null;
-let SpawnClusterTime = 0;
+const SpawnOpts = {
+    Count: 1,
+    Pattern: "cluster",
+    Spacing: 40,
+    Speed: 0.5,
+    Origin: "camera",
+    RandomVel: true,
+    Charge: false,
+    Settle: true
+};
 
-function SpawnAtoms() {
-    if (!AtomSelect) return;
-    const Key = AtomSelect.value;
-    const Count = Math.max(1, Math.min(20, Number(SpawnCountInput?.value) || 1));
-    const Speed = Prefs.SpawnSpeed;
-    if (!CanvasRenderer) return;
+function ReadSpawnOpts() {
+    if (SpawnCountInput) SpawnOpts.Count = Math.max(1, Math.min(40, Number(SpawnCountInput.value) || 1));
+    if (SpawnPatternEl) SpawnOpts.Pattern = SpawnPatternEl.value || "cluster";
+    if (SpawnSpacingEl) SpawnOpts.Spacing = Number(SpawnSpacingEl.value) || 40;
+    if (SpawnSpeedEl) SpawnOpts.Speed = Number(SpawnSpeedEl.value) || 0;
+    if (SpawnOriginEl) SpawnOpts.Origin = SpawnOriginEl.value || "camera";
+    if (SpawnRandomVelEl) SpawnOpts.RandomVel = !!SpawnRandomVelEl.checked;
+    if (SpawnChargeEl) SpawnOpts.Charge = !!SpawnChargeEl.checked;
+    if (SpawnSettleEl) SpawnOpts.Settle = !!SpawnSettleEl.checked;
+    Prefs.SpawnSpeed = SpawnOpts.Speed;
+}
+
+if (SpawnSpacingEl) {
+    SpawnSpacingEl.addEventListener("input", () => {
+        if (SpawnSpacingVal) SpawnSpacingVal.textContent = String(SpawnSpacingEl.value);
+    });
+}
+if (SpawnSpeedEl) {
+    SpawnSpeedEl.addEventListener("input", () => {
+        if (SpawnSpeedVal) SpawnSpeedVal.textContent = Number(SpawnSpeedEl.value).toFixed(1);
+        Prefs.SpawnSpeed = Number(SpawnSpeedEl.value) || 0;
+    });
+}
+
+function CloseSpawnMenu() {
+    if (SpawnMenu) SpawnMenu.hidden = true;
+    if (SpawnOptsBtn) SpawnOptsBtn.setAttribute("aria-expanded", "false");
+}
+
+function PositionSpawnMenu() {
+    if (!SpawnMenu || !SpawnOptsBtn || SpawnMenu.hidden) return;
+    const Rect = SpawnOptsBtn.getBoundingClientRect();
+    const MenuW = Math.min(280, window.innerWidth - 16);
+    let Left = Rect.right - MenuW;
+    Left = Math.max(8, Math.min(Left, window.innerWidth - MenuW - 8));
+    let Top = Rect.bottom + 6;
+    SpawnMenu.style.left = `${Left}px`;
+    SpawnMenu.style.top = `${Top}px`;
+    const Mr = SpawnMenu.getBoundingClientRect();
+    if (Mr.bottom > window.innerHeight - 8) {
+        Top = Math.max(8, Rect.top - Mr.height - 6);
+        SpawnMenu.style.top = `${Top}px`;
+    }
+}
+
+if (SpawnOptsBtn && SpawnMenu) {
+    SpawnOptsBtn.addEventListener("click", (Event) => {
+        Event.stopPropagation();
+        const Open = SpawnMenu.hidden;
+        SpawnMenu.hidden = !Open;
+        SpawnOptsBtn.setAttribute("aria-expanded", Open ? "true" : "false");
+        if (Open) {
+            HideContextMenu();
+            PositionSpawnMenu();
+        }
+    });
+    SpawnMenu.addEventListener("mousedown", (Event) => Event.stopPropagation());
+    SpawnMenu.addEventListener("click", (Event) => Event.stopPropagation());
+    document.addEventListener("mousedown", (Event) => {
+        if (!SpawnMenu.hidden && !Event.target.closest("#SpawnMenu, #SpawnOptsBtn")) {
+            CloseSpawnMenu();
+        }
+    });
+    window.addEventListener("resize", () => PositionSpawnMenu());
+}
+
+function SpawnAnchor() {
     const Cam = CanvasRenderer.CameraPosition;
     const Fwd = GetCameraForward();
-    const Now = performance.now();
-    if (!SpawnClusterCenter || Now - SpawnClusterTime > 2500) {
-        SpawnClusterCenter = [Cam[0] + Fwd[0] * 260, Cam[1] + Fwd[1] * 260, Cam[2] + Fwd[2] * 260];
+    const Mode = SpawnOpts.Origin;
+    if (Mode === "origin") return [0, 0, 0];
+    if (Mode === "selected" && SelectedObject) {
+        return [...SelectedObject.Position];
     }
-    SpawnClusterTime = Now;
+    return [Cam[0] + Fwd[0] * 260, Cam[1] + Fwd[1] * 260, Cam[2] + Fwd[2] * 260];
+}
+
+function SpawnOffset(I, Count, Spacing, Pattern) {
+    if (Count <= 1) return [0, 0, 0];
+    if (Pattern === "line") {
+        return [(I - (Count - 1) * 0.5) * Spacing, 0, 0];
+    }
+    if (Pattern === "ring") {
+        const Ang = (I / Count) * Math.PI * 2;
+        return [Math.cos(Ang) * Spacing, 0, Math.sin(Ang) * Spacing];
+    }
+    if (Pattern === "grid") {
+        const Side = Math.ceil(Math.sqrt(Count));
+        const X = (I % Side) - (Side - 1) * 0.5;
+        const Z = Math.floor(I / Side) - (Side - 1) * 0.5;
+        return [X * Spacing, 0, Z * Spacing];
+    }
+    if (Pattern === "scatter") {
+        return [
+            (Math.random() - 0.5) * Spacing * 3,
+            (Math.random() - 0.5) * Spacing * 3,
+            (Math.random() - 0.5) * Spacing * 3
+        ];
+    }
+    // cluster
+    return [
+        (Math.random() - 0.5) * Spacing * 0.7,
+        (Math.random() - 0.5) * Spacing * 0.7,
+        (Math.random() - 0.5) * Spacing * 0.7
+    ];
+}
+
+function SpawnAtoms() {
+    if (!AtomSelect || typeof Atom !== "function") return;
+    ReadSpawnOpts();
+    const Key = AtomSelect.value;
+    const Count = SpawnOpts.Count;
+    const Speed = SpawnOpts.Speed;
+    if (!CanvasRenderer) return;
+    const Center = SpawnAnchor();
     let Last = null;
-    for (let i = 0; i < Count; i++) {
-        const Jitter = [
-            (Math.random() - 0.5) * 28,
-            (Math.random() - 0.5) * 28,
-            (Math.random() - 0.5) * 28
-        ];
-        const Vel = [
-            (Math.random() - 0.5) * Speed,
-            (Math.random() - 0.5) * Speed,
-            (Math.random() - 0.5) * Speed
-        ];
+    for (let I = 0; I < Count; I++) {
+        const Off = SpawnOffset(I, Count, SpawnOpts.Spacing, SpawnOpts.Pattern);
+        const Vel = SpawnOpts.RandomVel
+            ? [(Math.random() - 0.5) * Speed, (Math.random() - 0.5) * Speed, (Math.random() - 0.5) * Speed]
+            : [0, 0, 0];
         Last = Atom(Key, [
-            SpawnClusterCenter[0] + Jitter[0],
-            SpawnClusterCenter[1] + Jitter[1],
-            SpawnClusterCenter[2] + Jitter[2]
+            Center[0] + Off[0],
+            Center[1] + Off[1],
+            Center[2] + Off[2]
         ], Vel);
+        if (Last && SpawnOpts.Charge) Last.ExtraCharge = (Last.ExtraCharge || 0) + 1;
     }
     if (Last) {
         SelectedObject = Last;
         CanvasRenderer.SelectedObject = Last;
+    }
+    if (SpawnOpts.Settle) {
+        CanvasRenderer.SettleFrames = Math.max(CanvasRenderer.SettleFrames || 0, 90);
+        CanvasRenderer.BondsDirty = true;
     }
     UpdateHierarchy(true);
 }
@@ -1355,25 +1539,52 @@ function WirePref(Id, Key, Format = (V) => V.toFixed(1)) {
 WirePref("PrefExcite", "ExciteAmount");
 WirePref("PrefImpulse", "ImpulseStrength", (V) => String(V));
 WirePref("PrefShake", "ShakeIntensity");
-WirePref("PrefSpawnSpeed", "SpawnSpeed");
 
 function WireBound(Id, Axis) {
     const El = document.getElementById(Id);
-    const Val = document.getElementById(Id + "Val");
     if (!El) return;
-    El.addEventListener("input", () => {
-        const V = Number(El.value);
+    const Apply = () => {
+        let V = Number(El.value);
+        if (!isFinite(V) || El.value === "") {
+            V = Prefs["Bound" + Axis] ?? 300;
+        }
+        V = Math.max(100, Math.min(1500, Math.round(V / 25) * 25 || 300));
+        El.value = String(V);
         Prefs["Bound" + Axis] = V;
         if (CanvasRenderer) CanvasRenderer["Boundary" + Axis] = V;
-        if (Val) Val.textContent = String(Math.round(V));
-        if (BoundsSizeLabel) {
+        if (BoundsSizeLabel && CanvasRenderer) {
             BoundsSizeLabel.textContent = `${Math.round(CanvasRenderer.BoundaryX)}/${Math.round(CanvasRenderer.BoundaryY)}/${Math.round(CanvasRenderer.BoundaryZ)}`;
         }
+    };
+    // Keep fields populated from Prefs / renderer
+    const Initial = Prefs["Bound" + Axis] ?? (CanvasRenderer ? CanvasRenderer["Boundary" + Axis] : 300) ?? 300;
+    El.value = String(Math.round(Initial));
+    El.addEventListener("change", Apply);
+    El.addEventListener("blur", Apply);
+    El.addEventListener("keydown", (Event) => {
+        if (Event.key === "Enter") {
+            Event.preventDefault();
+            Apply();
+            El.blur();
+        }
+        Event.stopPropagation();
     });
 }
 WireBound("PrefBoundX", "X");
 WireBound("PrefBoundY", "Y");
 WireBound("PrefBoundZ", "Z");
+
+// Re-sync bound fields once renderer is ready
+const _PrevBoot = BootRenderer;
+// note: BootRenderer already ran as promise - sync after a microtask if renderer exists
+queueMicrotask(() => {
+    for (const [Id, Axis] of [["PrefBoundX", "X"], ["PrefBoundY", "Y"], ["PrefBoundZ", "Z"]]) {
+        const El = document.getElementById(Id);
+        if (!El) continue;
+        const V = (CanvasRenderer && CanvasRenderer["Boundary" + Axis]) || Prefs["Bound" + Axis] || 300;
+        El.value = String(Math.round(V));
+    }
+});
 
 const PrefBathEl = document.getElementById("PrefBath");
 if (PrefBathEl) {
@@ -1397,6 +1608,18 @@ if (PrefFreeEl) {
         if (Val) Val.textContent = V.toFixed(1);
     });
 }
+
+const PrefFrictionEl = document.getElementById("PrefFriction");
+if (PrefFrictionEl) {
+    PrefFrictionEl.addEventListener("input", () => {
+        const V = Number(PrefFrictionEl.value);
+        if (!CanvasRenderer) return;
+        CanvasRenderer.Friction = Math.max(0, Math.min(1, V));
+        const Val = document.getElementById("PrefFrictionVal");
+        if (Val) Val.textContent = V.toFixed(2);
+    });
+}
+
 
 let LastFrameTime = performance.now();
 let FrameCounter = 0;
@@ -1445,3 +1668,94 @@ const Update = () => {
     if (globalThis.Plugin) globalThis.Plugin.Tick(DeltaTime);
     requestAnimationFrame(Update);
 };
+
+function MakeStepArrow(Dir) {
+    const Svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    Svg.setAttribute("viewBox", "0 0 12 8");
+    Svg.setAttribute("width", "10");
+    Svg.setAttribute("height", "6");
+    Svg.setAttribute("aria-hidden", "true");
+    Svg.classList.add("NumStepSvg");
+    const Path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    // Up: point top, Down: point bottom
+    Path.setAttribute("d", Dir > 0 ? "M1 6.5 L6 1.5 L11 6.5" : "M1 1.5 L6 6.5 L11 1.5");
+    Path.setAttribute("fill", "none");
+    Path.setAttribute("stroke", "currentColor");
+    Path.setAttribute("stroke-width", "1.6");
+    Path.setAttribute("stroke-linecap", "round");
+    Path.setAttribute("stroke-linejoin", "round");
+    Svg.appendChild(Path);
+    return Svg;
+}
+
+function EnhanceNumberFields(Root = document) {
+    const Candidates = Root.querySelectorAll('input[type="number"]');
+    for (const Input of Candidates) {
+        if (Input.closest(".WStepper")) continue; // already has +/- buttons
+        if (Input.dataset.stepperWired === "1") continue;
+
+        let Field = Input.closest(".NumField");
+        if (!Field) {
+            Field = document.createElement("div");
+            Field.className = "NumField";
+            Input.parentNode.insertBefore(Field, Input);
+            Field.appendChild(Input);
+        }
+        if (Field.dataset.stepperWired === "1") {
+            Input.dataset.stepperWired = "1";
+            continue;
+        }
+        Field.dataset.stepperWired = "1";
+        Input.dataset.stepperWired = "1";
+
+        const Stepper = document.createElement("div");
+        Stepper.className = "NumStepper";
+
+        const MkBtn = (Dir) => {
+            const Btn = document.createElement("button");
+            Btn.type = "button";
+            Btn.className = "NumStepBtn " + (Dir > 0 ? "NumStepUp" : "NumStepDown");
+            Btn.tabIndex = -1;
+            Btn.setAttribute("aria-label", Dir > 0 ? "Increase" : "Decrease");
+            Btn.appendChild(MakeStepArrow(Dir));
+            Btn.addEventListener("mousedown", (Event) => {
+                Event.preventDefault();
+                Event.stopPropagation();
+            });
+            Btn.addEventListener("click", (Event) => {
+                Event.preventDefault();
+                Event.stopPropagation();
+                const Step = Number(Input.step);
+                const StepVal = isFinite(Step) && Step !== 0 ? Step : 1;
+                const Min = Input.min !== "" ? Number(Input.min) : -Infinity;
+                const Max = Input.max !== "" ? Number(Input.max) : Infinity;
+                let V = Number(Input.value);
+                if (!isFinite(V)) V = isFinite(Min) ? Min : 0;
+                V = V + Dir * StepVal;
+                // snap
+                const Precision = Math.max(0, (String(StepVal).split(".")[1] || "").length);
+                const Scale = Math.pow(10, Precision);
+                V = Math.round(V * Scale / (StepVal * Scale)) * StepVal;
+                if (Precision > 0) V = Number(V.toFixed(Precision));
+                else V = Math.round(V);
+                V = Math.max(Min, Math.min(Max, V));
+                Input.value = String(V);
+                Input.dispatchEvent(new Event("input", { bubbles: true }));
+                Input.dispatchEvent(new Event("change", { bubbles: true }));
+            });
+            return Btn;
+        };
+
+        Stepper.appendChild(MkBtn(1));
+        Stepper.appendChild(MkBtn(-1));
+        Field.appendChild(Stepper);
+    }
+}
+
+EnhanceNumberFields();
+if (typeof MutationObserver !== "undefined") {
+    const NumObs = new MutationObserver(() => {
+        EnhanceNumberFields(document);
+    });
+    NumObs.observe(document.body, { childList: true, subtree: true });
+}

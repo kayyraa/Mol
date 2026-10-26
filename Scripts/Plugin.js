@@ -362,6 +362,58 @@ function CreatePluginContext(Entry) {
     };
 }
 
+function TogglePluginFromDock(Entry, MenuBtn) {
+    const Existing = FindPluginWidget(Entry.Id);
+    if (Existing && !Existing.classList.contains("WidgetHidden")) {
+        Existing.classList.add("WidgetHidden");
+        if (MenuBtn) MenuBtn.classList.remove("active");
+        Emit("ClosePlugin", { Id: Entry.Id });
+        SyncPluginDockActive();
+        return;
+    }
+    Emit("OpenPlugin", { Id: Entry.Id });
+    if (typeof Entry.Open === "function") {
+        try { Entry.Open(CreatePluginContext(Entry)); } catch (E) { console.error(E); }
+    }
+    const Opened = FindPluginWidget(Entry.Id);
+    if (Opened) {
+        Opened.style.zIndex = String(++WidgetZ);
+        Opened.classList.remove("WidgetHidden");
+        if (MenuBtn) MenuBtn.classList.add("active");
+        const CloseBtn = Opened.querySelector(".WidgetBtn");
+        if (CloseBtn && !CloseBtn.dataset.toggleWired) {
+            CloseBtn.dataset.toggleWired = "1";
+            CloseBtn.addEventListener("click", () => {
+                if (MenuBtn) MenuBtn.classList.remove("active");
+                SyncPluginDockActive();
+            });
+        }
+    }
+    SyncPluginDockActive();
+}
+
+function SyncPluginDockActive() {
+    const Menu = document.getElementById("PluginDockMenu");
+    const Launch = document.getElementById("PluginDockLaunch");
+    if (!Menu) return;
+    let AnyOpen = false;
+    for (const Btn of Menu.querySelectorAll(".PluginDockItem")) {
+        const Id = Btn.dataset.pluginId;
+        const Widget = Id ? FindPluginWidget(Id) : null;
+        const Open = !!(Widget && !Widget.classList.contains("WidgetHidden"));
+        Btn.classList.toggle("active", Open);
+        if (Open) AnyOpen = true;
+    }
+    if (Launch) Launch.classList.toggle("has-open", AnyOpen);
+}
+
+function ClosePluginDockMenu() {
+    const Dock = document.getElementById("PluginDock");
+    if (Dock) Dock.classList.remove("Open");
+    const Launch = document.getElementById("PluginDockLaunch");
+    if (Launch) Launch.setAttribute("aria-expanded", "false");
+}
+
 function BuildPluginDock() {
     let Dock = document.getElementById("PluginDock");
     if (!Dock) {
@@ -371,43 +423,93 @@ function BuildPluginDock() {
         document.body.appendChild(Dock);
     }
     Dock.innerHTML = "";
+    Dock.classList.remove("Open");
 
-    for (const Entry of PluginRegistry.values()) {
-        const Btn = document.createElement("button");
-        Btn.className = "PluginDockBtn";
-        Btn.textContent = Entry.Name || Entry.Id;
-        Btn.title = Entry.Description || Entry.Name || Entry.Id;
-        Btn.dataset.pluginId = Entry.Id;
+    const Entries = [...PluginRegistry.values()];
+    const Count = Entries.length;
 
-        Btn.addEventListener("click", () => {
-            const Existing = FindPluginWidget(Entry.Id);
-            if (Existing && !Existing.classList.contains("WidgetHidden")) {
-                Existing.classList.add("WidgetHidden");
-                Btn.classList.remove("active");
-                Emit("ClosePlugin", { Id: Entry.Id });
-                return;
-            }
-            Emit("OpenPlugin", { Id: Entry.Id });
-            if (typeof Entry.Open === "function") {
-                try { Entry.Open(CreatePluginContext(Entry)); } catch (E) { console.error(E); }
-            }
-            const Opened = FindPluginWidget(Entry.Id);
-            if (Opened) {
-                Opened.style.zIndex = String(++WidgetZ);
-                Opened.classList.remove("WidgetHidden");
-                Btn.classList.add("active");
-                const CloseBtn = Opened.querySelector(".WidgetBtn");
-                if (CloseBtn && !CloseBtn.dataset.toggleWired) {
-                    CloseBtn.dataset.toggleWired = "1";
-                    CloseBtn.addEventListener("click", () => {
-                        Btn.classList.remove("active");
-                    });
-                }
-            }
+    const Launch = document.createElement("button");
+    Launch.type = "button";
+    Launch.id = "PluginDockLaunch";
+    Launch.className = "PluginDockLaunch";
+    Launch.setAttribute("aria-haspopup", "true");
+    Launch.setAttribute("aria-expanded", "false");
+    Launch.setAttribute("aria-controls", "PluginDockMenu");
+    Launch.innerHTML = `<span class="PluginDockLaunchIcon" aria-hidden="true"></span><span class="PluginDockLaunchLabel">Plugins</span><span class="PluginDockLaunchCount">${Count}</span>`;
+    Launch.title = "Open plugins";
+
+    const Menu = document.createElement("div");
+    Menu.id = "PluginDockMenu";
+    Menu.className = "PluginDockMenu";
+    Menu.setAttribute("role", "menu");
+    Menu.hidden = true;
+
+    for (const Entry of Entries) {
+        const Item = document.createElement("button");
+        Item.type = "button";
+        Item.className = "PluginDockItem";
+        Item.dataset.pluginId = Entry.Id;
+        Item.setAttribute("role", "menuitemcheckbox");
+        Item.title = Entry.Description || Entry.Name || Entry.Id;
+
+        const Name = document.createElement("span");
+        Name.className = "PluginDockItemName";
+        Name.textContent = Entry.Name || Entry.Id;
+
+        const Meta = document.createElement("span");
+        Meta.className = "PluginDockItemMeta";
+        Meta.textContent = Entry.Version ? `v${Entry.Version}` : "";
+
+        Item.appendChild(Name);
+        Item.appendChild(Meta);
+
+        Item.addEventListener("click", (Event) => {
+            Event.stopPropagation();
+            TogglePluginFromDock(Entry, Item);
         });
 
-        Dock.appendChild(Btn);
+        Menu.appendChild(Item);
     }
+
+    if (!Count) {
+        const Empty = document.createElement("div");
+        Empty.className = "PluginDockEmpty";
+        Empty.textContent = "No plugins loaded";
+        Menu.appendChild(Empty);
+    }
+
+    Launch.addEventListener("click", (Event) => {
+        Event.stopPropagation();
+        const Open = !Dock.classList.contains("Open");
+        Dock.classList.toggle("Open", Open);
+        Menu.hidden = !Open;
+        Launch.setAttribute("aria-expanded", Open ? "true" : "false");
+        if (Open) SyncPluginDockActive();
+    });
+
+    Dock.appendChild(Menu);
+    Dock.appendChild(Launch);
+
+    if (!document.documentElement.dataset.pluginDockOutsideWired) {
+        document.documentElement.dataset.pluginDockOutsideWired = "1";
+        document.addEventListener("pointerdown", (Event) => {
+            const DockEl = document.getElementById("PluginDock");
+            if (!DockEl || !DockEl.classList.contains("Open")) return;
+            if (Event.target.closest && Event.target.closest("#PluginDock")) return;
+            ClosePluginDockMenu();
+            const MenuEl = document.getElementById("PluginDockMenu");
+            if (MenuEl) MenuEl.hidden = true;
+        });
+        document.addEventListener("keydown", (Event) => {
+            if (Event.key === "Escape") {
+                ClosePluginDockMenu();
+                const MenuEl = document.getElementById("PluginDockMenu");
+                if (MenuEl) MenuEl.hidden = true;
+            }
+        });
+    }
+
+    SyncPluginDockActive();
 }
 
 const Plugin = {

@@ -567,9 +567,10 @@ globalThis.Renderer = class {
         this.TargetTimeScale = 0.5;
         this.Temperature = 0.35;
         this.FreeEnergy = 0;
+        this.Friction = 0.45;
         this.ShakeIntensity = 1.0;
-        this.BoundaryX = 400;
-        this.BoundaryY = 400;
+        this.BoundaryX = 300;
+        this.BoundaryY = 300;
         this.BoundaryZ = 300;
         this.DisplayMode = "none";
         this.Textures = new Map();
@@ -590,8 +591,8 @@ globalThis.Renderer = class {
         this.IonicCoordination = 6;
         this.MetalCoordination = 12;
         this.IonicChargeThreshold = 0.7;
-        this.MetallicConstraintIterations = 4;
-        this.MetallicConstraintStrength = 0.55;
+        this.MetallicConstraintIterations = 6;
+        this.MetallicConstraintStrength = 0.72;
 
         this.Grid = new SpatialGrid(300);
         this.AngleNeighborMap = new Map();
@@ -747,16 +748,21 @@ globalThis.Renderer = class {
         Pairs.sort((A, B) => B.Score - A.Score || A.Distance - B.Distance);
 
         const BondCounts = new Map();
+        const ForcedOccupied = new Map();
         const ValidBondPositions = [];
         const ValidBondPairs = new Set();
         const NewBondData = new Map();
         const PairByKey = new Map();
         for (const P of Pairs) PairByKey.set(`${P.IndexA}_${P.IndexB}`, P);
 
-        for (const O of Objects) BondCounts.set(O, 0);
+        for (const O of Objects) {
+            BondCounts.set(O, 0);
+            ForcedOccupied.set(O, 0);
+        }
 
         const Threshold = this.IonicChargeThreshold;
         const IonicMax = this.IonicCoordination;
+        const MetalsSet = globalThis.Metals;
 
         const CommitBond = (IndexA, IndexB, Distance, BaseEq, Info, Forced) => {
             const AtomA = Objects[IndexA];
@@ -777,10 +783,17 @@ globalThis.Renderer = class {
             const CountB = BondCounts.get(AtomB);
             const IsHydrogen = BondType === "hydrogen";
             const MetalMax = this.MetalCoordination || 12;
+            const ValA = AtomA.Atom.Valence || 1;
+            const ValB = AtomB.Atom.Valence || 1;
+            const MetaA = MetalsSet && MetalsSet.has(AtomA.Key);
+            const MetaB = MetalsSet && MetalsSet.has(AtomB.Key);
+
             let MaxA, MaxB;
             if (Forced) {
-                MaxA = MetalMax;
-                MaxB = MetalMax;
+                if (IsMetallic || MetaA) MaxA = MetalMax;
+                else MaxA = Math.max(ValA, CountA + 3);
+                if (IsMetallic || MetaB) MaxB = MetalMax;
+                else MaxB = Math.max(ValB, CountB + 3);
             } else if (IsHydrogen) {
                 MaxA = 12;
                 MaxB = 12;
@@ -791,8 +804,13 @@ globalThis.Renderer = class {
                 MaxA = MetalMax;
                 MaxB = MetalMax;
             } else {
-                MaxA = AtomA.Atom.Valence;
-                MaxB = AtomB.Atom.Valence;
+                // Atoms already in a forced (sketched/lattice) structure cannot
+                // grow extra spontaneous covalent bonds -- that caused cross-linked
+                // organic blobs (e.g. broken sugars). Metals stay open.
+                const LockA = !MetaA && ForcedOccupied.get(AtomA) > 0;
+                const LockB = !MetaB && ForcedOccupied.get(AtomB) > 0;
+                MaxA = LockA ? CountA : ValA;
+                MaxB = LockB ? CountB : ValB;
             }
             if (CountA >= MaxA || CountB >= MaxB) return false;
 
@@ -804,17 +822,55 @@ globalThis.Renderer = class {
             let Order = 1;
             let UseInfo = Info;
 
+            const ApplyOrdered = (Proposed) => {
+                if (!(Proposed > 1) || !globalThis.Chemistry) return;
+                const Ordered = globalThis.Chemistry.GetOrderedBondInfo(AtomA.Key, AtomB.Key, Proposed);
+                const Single = globalThis.Chemistry.GetOrderedBondInfo(AtomA.Key, AtomB.Key, 1);
+                if (Ordered && Single) {
+                    Order = Ordered.order;
+                    EqDist = BaseEq * (Ordered.length / Single.length);
+                    UseInfo = {
+                        energy: Ordered.energy,
+                        stability: Ordered.stability,
+                        explosive: 1 - Ordered.stability
+                    };
+                }
+            };
+
             if (Forced) {
                 if (Prev && Prev.eqDist) {
                     EqDist = Prev.eqDist;
-                } else if (IsMetallic || (Info && Info.Metallic)) {
-                    EqDist = AtomA.EffRadius + AtomB.EffRadius + 22;
-                    UseInfo = { energy: 200, stability: 0.92, explosive: 0.02, Metallic: true };
+                    Order = Prev.order || 1;
+                    if (Prev.energy) UseInfo = {
+                        energy: Prev.energy,
+                        stability: Prev.stability || 0.9,
+                        explosive: Prev.explosive ?? 0.05
+                    };
+                } else if (IsMetallic || (Info && Info.Metallic) || (MetaA && MetaB)) {
+                    // Lock lattice spacing from actual placement (prevents FCC collapse/expansion)
+                    EqDist = Math.max(12, Distance * 0.98 + (AtomA.EffRadius + AtomB.EffRadius + 22) * 0.02);
+                    UseInfo = { energy: 280, stability: 0.96, explosive: 0.01, Metallic: true };
                 } else if (IsIonic || (Info && Info.Ionic)) {
                     EqDist = AtomA.EffRadius + AtomB.EffRadius + 6;
                     UseInfo = { energy: Info.energy || 380, stability: 0.96, explosive: 0.02, Ionic: true };
                 } else {
-                    EqDist = Math.max(8, Distance);
+                    // Prefer chemically correct bond order for forced organics
+                    const SlackA = Math.max(1, ValA - CountA);
+                    const SlackB = Math.max(1, ValB - CountB);
+                    if (globalThis.Chemistry && globalThis.Chemistry.ProposeBondOrder) {
+                        const Proposed = globalThis.Chemistry.ProposeBondOrder(
+                            AtomA.Key, AtomB.Key, SlackA, SlackB, Distance, BaseEq
+                        );
+                        ApplyOrdered(Proposed);
+                    }
+                    if (Order === 1) {
+                        EqDist = Math.max(8, Math.min(BaseEq, Distance * 0.92 + BaseEq * 0.08));
+                        UseInfo = {
+                            energy: Math.max(Info.energy || 180, 220),
+                            stability: Math.max(Info.stability || 0.7, 0.9),
+                            explosive: Math.min(Info.explosive || 0.1, 0.08)
+                        };
+                    }
                 }
             } else if (BondType === "hydrogen") {
                 EqDist = AtomA.EffRadius + AtomB.EffRadius + 48;
@@ -827,23 +883,33 @@ globalThis.Renderer = class {
                 EqDist = AtomA.EffRadius + AtomB.EffRadius + 22;
                 UseInfo = { energy: 200, stability: 0.92, explosive: 0.02, Metallic: true };
             } else if (globalThis.Chemistry && globalThis.Chemistry.ProposeBondOrder) {
-                const SlackA = AtomA.Atom.Valence - CountA;
-                const SlackB = AtomB.Atom.Valence - CountB;
+                const SlackA = ValA - CountA;
+                const SlackB = ValB - CountB;
                 const Proposed = globalThis.Chemistry.ProposeBondOrder(
                     AtomA.Key, AtomB.Key, SlackA, SlackB, Distance, BaseEq
                 );
-                if (Proposed > 1) {
-                    const Ordered = globalThis.Chemistry.GetOrderedBondInfo(AtomA.Key, AtomB.Key, Proposed);
-                    const Single = globalThis.Chemistry.GetOrderedBondInfo(AtomA.Key, AtomB.Key, 1);
-                    if (Ordered && Single) {
-                        Order = Ordered.order;
-                        EqDist = BaseEq * (Ordered.length / Single.length);
-                        UseInfo = {
-                            energy: Ordered.energy,
-                            stability: Ordered.stability,
-                            explosive: 1 - Ordered.stability
-                        };
+                ApplyOrdered(Proposed);
+            }
+
+            // Final valence gate using intended order cost (skip for forced metals)
+            const CostPreview = (IsHydrogen ? 0 : Order);
+            if (!Forced || !(MetaA || MetaB || IsMetallic)) {
+                if (CountA + CostPreview > MaxA || CountB + CostPreview > MaxB) {
+                    if (Order > 1) {
+                        Order = 1;
+                        const Single = globalThis.Chemistry && globalThis.Chemistry.GetOrderedBondInfo
+                            ? globalThis.Chemistry.GetOrderedBondInfo(AtomA.Key, AtomB.Key, 1)
+                            : null;
+                        if (Single) {
+                            EqDist = BaseEq;
+                            UseInfo = {
+                                energy: Single.energy,
+                                stability: Single.stability,
+                                explosive: 1 - Single.stability
+                            };
+                        }
                     }
+                    if (CountA + 1 > MaxA || CountB + 1 > MaxB) return false;
                 }
             }
 
@@ -852,19 +918,20 @@ globalThis.Renderer = class {
             const EnergyNorm = Math.min(1.0, (UseInfo.energy || 180) / 450);
             const PrevAge = (Prev && Prev.Age) ? Prev.Age : 0;
             let FormMul;
-            if (Forced) FormMul = 3.6 + this.Temperature * 0.2;
-            else if (BondType === "hydrogen") FormMul = 1.12 + Stab * 0.22 + this.Temperature * 0.1;
+            if (Forced) FormMul = 4.2 + this.Temperature * 0.15;
+            else if (BondType === "hydrogen") FormMul = 1.08 + Stab * 0.18 + this.Temperature * 0.08;
             else if (IsIonic) FormMul = 1.4 + Stab * 0.5 + EnergyNorm * 0.2 + this.Temperature * 0.12;
             else if (IsMetallic) FormMul = 2.4 + Stab * 0.85 + EnergyNorm * 0.3 + this.Temperature * 0.12 + Math.min(0.4, PrevAge * 0.006);
             else if (WasBonded) {
-                FormMul = 1.35 + Stab * 0.95 + EnergyNorm * 0.4 + this.Temperature * 0.15 + Math.min(0.35, PrevAge * 0.004);
+                FormMul = 1.28 + Stab * 0.85 + EnergyNorm * 0.35 + this.Temperature * 0.12 + Math.min(0.3, PrevAge * 0.004);
             } else {
-                FormMul = 1.12 + Stab * 0.35 + EnergyNorm * 0.15;
+                // Harder for brand-new spontaneous covalent bonds to form at long range
+                FormMul = 1.04 + Stab * 0.22 + EnergyNorm * 0.1;
             }
 
             if (Distance > EqDist * FormMul) {
                 if (Forced) {
-                    if (Distance > EqDist * (FormMul + 2.0)) this.ForcedBonds.delete(Key);
+                    if (Distance > EqDist * (FormMul + 2.5)) this.ForcedBonds.delete(Key);
                     return false;
                 }
                 return false;
@@ -872,12 +939,12 @@ globalThis.Renderer = class {
 
             const Affinity = this.GetBondAffinityCached(AtomA, AtomB);
             const FinalStability = Forced
-                ? Math.max(UseInfo.stability, 0.88)
+                ? Math.max(UseInfo.stability || 0.5, 0.92)
                 : IsIonic
                     ? UseInfo.stability
                     : IsMetallic
                         ? Math.max(UseInfo.stability, 0.88)
-                        : UseInfo.stability * (0.35 + 0.65 * Affinity);
+                        : UseInfo.stability * (0.45 + 0.55 * Affinity);
 
             ValidBondPositions.push(AtomA.Position, AtomB.Position);
             ValidBondPairs.add(Key);
@@ -899,6 +966,10 @@ globalThis.Renderer = class {
             const ValenceCost = BondType === "hydrogen" ? 0 : Order;
             BondCounts.set(AtomA, CountA + ValenceCost);
             BondCounts.set(AtomB, CountB + ValenceCost);
+            if (Forced) {
+                ForcedOccupied.set(AtomA, (ForcedOccupied.get(AtomA) || 0) + 1);
+                ForcedOccupied.set(AtomB, (ForcedOccupied.get(AtomB) || 0) + 1);
+            }
             return true;
         };
 
@@ -1163,6 +1234,11 @@ globalThis.Renderer = class {
                 const Key = IndexA + "_" + IndexB;
                 if (this.ActiveBondPairs.has(Key)) return;
                 const AtomB = Objects[IndexB];
+                const Metals = globalThis.Metals;
+                const BothMetal = Metals && Metals.has(AtomA.Key) && Metals.has(AtomB.Key);
+                // Metal lattices are held by forced bonds; long-range VdW attraction
+                // collapses FCC/BCC toward the center.
+                if (BothMetal) return;
                 const Dx = AtomB.Position[0] - Ax;
                 const Dy = AtomB.Position[1] - Ay;
                 const Dz = AtomB.Position[2] - Az;
@@ -1180,7 +1256,7 @@ globalThis.Renderer = class {
                 const R12 = R6 * R6;
                 let ForceMag = 24 * 0.9 * Strength * PolBoost * NobleBoost * (R12 - R6) / Distance;
                 if (ForceMag > 20) ForceMag = 20;
-                else if (ForceMag < -3) ForceMag = -3;
+                else if (ForceMag < -2.2) ForceMag = -2.2;
                 if (ForceMag > -0.001 && ForceMag < 0.001) return;
 
                 const InvD = 1 / Distance;
@@ -1378,7 +1454,10 @@ globalThis.Renderer = class {
         if (this.LastForcedBondCount !== this.ForcedBonds.size) { this.BondsDirty = true; this.LastForcedBondCount = this.ForcedBonds.size; }
 
         const TimeStep = 0.008 * this.TimeScale;
-        const Damping = Math.pow(0.985 - this.Temperature * 0.006, Math.max(0.25, this.TimeScale));
+        const Friction = Math.max(0, Math.min(1, this.Friction ?? 0.45));
+        // Higher friction -> stronger velocity decay (tighter, calmer simulation)
+        const DampBase = 0.992 - Friction * 0.045 - this.Temperature * 0.008;
+        const Damping = Math.pow(Math.max(0.92, Math.min(0.995, DampBase)), Math.max(0.25, this.TimeScale));
 
         this.Grid.Clear();
         for (let i = 0; i < ObjectCount; i++) {
@@ -1547,7 +1626,11 @@ globalThis.Renderer = class {
                         SpringStiffness = (14.0 + (EnergyCap / 400) * 10.0) * OrderBoost;
                         if (Data.Forced) SpringStiffness *= 1.35;
                     }
-                    else SpringStiffness = (4.5 + (EnergyCap / 400) * 7.5) * Math.max(0.35, Stability) * OrderBoost;
+                    else {
+                        // Covalent: stronger springs so organic molecules keep shape
+                        SpringStiffness = (7.5 + (EnergyCap / 400) * 9.0) * Math.max(0.45, Stability) * OrderBoost;
+                        if (Data.Forced) SpringStiffness *= 1.55;
+                    }
 
                     SpringStiffness *= AgeRamp;
 
@@ -1630,7 +1713,7 @@ globalThis.Renderer = class {
                     const BT = Data.BondType || "covalent";
                     const Damp = BT === "hydrogen" ? 1.8
                                : BT === "ionic" ? 3.5
-                               : BT === "metallic" ? (Data.Forced ? 14.0 : 11.0)
+                               : BT === "metallic" ? (Data.Forced ? 18.0 : 14.0)
                                : 6.5;
                     const Age = Data.Age || 1;
                     const AgeMul = Math.min(1.6, 0.55 + Age / 25);
@@ -1730,6 +1813,11 @@ globalThis.Renderer = class {
                 Nvx *= 0.94;
                 Nvy *= 0.94;
                 Nvz *= 0.94;
+            }
+            if (globalThis.Metals && globalThis.Metals.has(Obj.Key) && (Obj.BondOrderSum || 0) >= 2) {
+                const Fric = Math.max(0, Math.min(1, this.Friction ?? 0.45));
+                const MetalDamp = 0.97 - Fric * 0.04;
+                Nvx *= MetalDamp; Nvy *= MetalDamp; Nvz *= MetalDamp;
             }
 
             const KeNow = 0.5 * Mass * (Nvx * Nvx + Nvy * Nvy + Nvz * Nvz);
@@ -2058,7 +2146,7 @@ globalThis.Renderer = class {
         }
     }
 
-    DrawLines(Positions, ViewMatrix, ProjectionMatrix, Color, Width = 2.0) {
+    DrawLines(Positions, ViewMatrix, ProjectionMatrix, Color, Width = 2.0, PerVertexColors = null) {
         if (Positions.length < 6) return;
         const Gl = this.Gl;
         Gl.useProgram(this.BondProgram);
@@ -2067,13 +2155,20 @@ globalThis.Renderer = class {
         Gl.vertexAttribPointer(this.BondLocations.Position, 3, Gl.FLOAT, false, 0, 0);
         Gl.enableVertexAttribArray(this.BondLocations.Position);
         const VertCount = Positions.length / 3;
-        const Colors = new Float32Array(VertCount * 4);
-        const R = Color[0], G = Color[1], B = Color[2], A = Color[3] !== undefined ? Color[3] : 1;
-        for (let I = 0; I < VertCount; I++) {
-            Colors[I * 4] = R;
-            Colors[I * 4 + 1] = G;
-            Colors[I * 4 + 2] = B;
-            Colors[I * 4 + 3] = A;
+        let Colors;
+        if (PerVertexColors && PerVertexColors.length >= VertCount * 4) {
+            Colors = PerVertexColors instanceof Float32Array
+                ? PerVertexColors
+                : new Float32Array(PerVertexColors);
+        } else {
+            Colors = new Float32Array(VertCount * 4);
+            const R = Color[0], G = Color[1], B = Color[2], A = Color[3] !== undefined ? Color[3] : 1;
+            for (let I = 0; I < VertCount; I++) {
+                Colors[I * 4] = R;
+                Colors[I * 4 + 1] = G;
+                Colors[I * 4 + 2] = B;
+                Colors[I * 4 + 3] = A;
+            }
         }
         Gl.bindBuffer(Gl.ARRAY_BUFFER, this.BondColorBuffer);
         Gl.bufferData(Gl.ARRAY_BUFFER, Colors, Gl.DYNAMIC_DRAW);
@@ -2221,7 +2316,9 @@ globalThis.Renderer = class {
 
         if (this.DisplayMode === "field") {
             const Lines = [];
+            const VertColors = [];
             const Soft = 12;
+            const Fr = 0.70, Fg = 0.55, Fb = 1.0;
             const SampleE = (X, Y, Z) => {
                 let Ex = 0, Ey = 0, Ez = 0;
                 for (const Src of Objects) {
@@ -2251,23 +2348,59 @@ globalThis.Renderer = class {
                     });
                 }
             }
-            const Step = 6, MaxSteps = 28;
+            const Step = 6, MaxSteps = 36;
+            const FadeInSteps = 5;
+            const FadeOutStart = 0.55;
+            const MagRef = 0.0008;
             for (const S of Seeds) {
                 let X = S.x, Y = S.y, Z = S.z;
+                let PrevAlpha = 0;
                 for (let K = 0; K < MaxSteps; K++) {
                     const [Ex, Ey, Ez] = SampleE(X, Y, Z);
                     const Mag = Math.sqrt(Ex*Ex + Ey*Ey + Ez*Ez);
-                    if (Mag < 1e-5) break;
-                    const Sx = (Ex/Mag) * Step * S.dir, Sy = (Ey/Mag) * Step * S.dir, Sz = (Ez/Mag) * Step * S.dir;
+                    if (Mag < 1e-7) break;
+
+                    const Progress = K / MaxSteps;
+                    let Envelope;
+                    if (K < FadeInSteps) {
+                        const T = (K + 1) / FadeInSteps;
+                        Envelope = T * T * (3 - 2 * T);
+                    } else if (Progress > FadeOutStart) {
+                        const T = (1 - Progress) / (1 - FadeOutStart);
+                        Envelope = T * T * (3 - 2 * T);
+                    } else {
+                        Envelope = 1;
+                    }
+                    const MagFade = Math.min(1, Mag / MagRef);
+                    const Alpha = Math.max(0, Math.min(0.85, 0.75 * Envelope * (0.25 + 0.75 * MagFade)));
+
+                    if (Alpha < 0.02 && PrevAlpha < 0.02 && K > FadeInSteps) break;
+
+                    const Sx = (Ex / Mag) * Step * S.dir;
+                    const Sy = (Ey / Mag) * Step * S.dir;
+                    const Sz = (Ez / Mag) * Step * S.dir;
                     const Nx = X + Sx, Ny = Y + Sy, Nz = Z + Sz;
+
                     Lines.push(X, Y, Z, Nx, Ny, Nz);
+                    VertColors.push(
+                        Fr, Fg, Fb, PrevAlpha > 0 ? PrevAlpha : Alpha * 0.55,
+                        Fr, Fg, Fb, Alpha
+                    );
+
+                    PrevAlpha = Alpha;
                     X = Nx; Y = Ny; Z = Nz;
                     if (Math.abs(X) > (this.BoundaryX || 400) * 1.2) break;
                     if (Math.abs(Y) > (this.BoundaryY || 400) * 1.2) break;
                     if (Math.abs(Z) > (this.BoundaryZ || 300) * 1.2) break;
                 }
             }
-            if (Lines.length) this.DrawLines(Lines, ViewMatrix, ProjectionMatrix, [0.7, 0.55, 1.0, 0.7], 1.5);
+            if (Lines.length) {
+                this.DrawLines(
+                    Lines, ViewMatrix, ProjectionMatrix,
+                    [Fr, Fg, Fb, 0.7], 1.5,
+                    new Float32Array(VertColors)
+                );
+            }
         }
 
         if (this.DisplayMode === "force") {

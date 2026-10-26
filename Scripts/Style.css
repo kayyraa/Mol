@@ -273,21 +273,41 @@ body {
     align-items: center;
 }
 
-.AtomSelect {
+.AtomSelect,
+.WSelect,
+.SpawnMenuRow select,
+select.UiSelect {
     flex: 1;
     min-width: 0;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: rgba(255, 255, 255, 0.06);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 L6 6.5 L11 1.5' fill='none' stroke='rgba(255,255,255,0.7)' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 10px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
     color: var(--text);
-    border-radius: var(--radius-sm);
-    padding: 6px 8px;
+    border-radius: 7px;
+    padding: 6px 28px 6px 10px;
     font-size: 12px;
+    font-family: inherit;
     outline: none;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.AtomSelect:hover, .AtomSelect:focus { border-color: rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.09); }
-.AtomSelect option { background: #1c1c1e; color: var(--text); }
+.AtomSelect:hover, .WSelect:hover, .SpawnMenuRow select:hover, select.UiSelect:hover,
+.AtomSelect:focus, .WSelect:focus, .SpawnMenuRow select:focus, select.UiSelect:focus {
+    border-color: rgba(255, 255, 255, 0.24);
+    background-color: rgba(255, 255, 255, 0.09);
+}
+
+.AtomSelect option, .WSelect option, .SpawnMenuRow select option, select.UiSelect option {
+    background: #1c1c1e;
+    color: var(--text);
+}
 
 .SpawnBtn {
     background: var(--accent-soft);
@@ -582,34 +602,157 @@ body {
     left: calc(12px + var(--safe-left));
     bottom: calc(12px + var(--safe-bottom));
     display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    z-index: 40;
+    max-width: min(280px, calc(100vw - 24px));
+}
+
+.PluginDockLaunch {
+    display: flex;
     flex-direction: row;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    padding: 8px 10px;
-    background: rgba(12, 12, 14, 0.5);
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(12, 12, 14, 0.55);
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 12px;
     backdrop-filter: blur(18px) saturate(140%);
     -webkit-backdrop-filter: blur(18px) saturate(140%);
-    z-index: 40;
-    max-width: min(560px, 70vw);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+    transition: background 0.12s ease, border-color 0.12s ease;
 }
 
-.PluginDockBtn {
-    background: rgba(255, 255, 255, 0.06);
+.PluginDockLaunch:hover {
+    background: rgba(20, 20, 24, 0.7);
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+.PluginDock.Open .PluginDockLaunch,
+.PluginDockLaunch.has-open {
+    border-color: var(--accent-border);
+    background: rgba(10, 132, 255, 0.12);
+}
+
+.PluginDockLaunchIcon {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    background:
+        linear-gradient(135deg, rgba(255,255,255,0.85) 0 30%, transparent 30% 40%, rgba(255,255,255,0.85) 40% 70%, transparent 70% 80%, rgba(255,255,255,0.85) 80%),
+        linear-gradient(45deg, transparent 35%, rgba(255,255,255,0.35) 35% 65%, transparent 65%);
+    background-size: 100% 100%;
+    opacity: 0.9;
+    flex-shrink: 0;
+}
+
+.PluginDockLaunchLabel {
+    letter-spacing: 0.02em;
+}
+
+.PluginDockLaunchCount {
+    margin-left: 2px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.PluginDockMenu {
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    width: min(260px, calc(100vw - 24px));
+    max-height: min(52vh, 420px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 6px;
+    background: rgba(12, 12, 14, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    overscroll-behavior: contain;
+}
+
+.PluginDock.Open .PluginDockMenu {
+    display: flex;
+}
+
+.PluginDockItem {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
     color: var(--text);
-    border-radius: 7px;
-    padding: 5px 10px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+    transition: background 0.1s ease, border-color 0.1s ease;
 }
 
-.PluginDockBtn:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.24); }
-.PluginDockBtn.active { background: var(--accent-soft); border-color: var(--accent-border); color: #fff; }
+.PluginDockItem:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.PluginDockItem.active {
+    background: var(--accent-soft);
+    border-color: var(--accent-border);
+    color: #fff;
+}
+
+.PluginDockItemName {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.PluginDockItemMeta {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.35);
+    font-variant-numeric: tabular-nums;
+}
+
+.PluginDockItem.active .PluginDockItemMeta {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.PluginDockEmpty {
+    padding: 12px 10px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    text-align: center;
+}
+
+/* legacy class kept so old hooks do not break */
+.PluginDockBtn { display: none; }
 
 .PluginWidget {
     position: fixed;
@@ -712,7 +855,7 @@ body {
     color: var(--text-secondary);
 }
 
-.WSelect, .WInput, .WNum {
+.WInput, .WNum {
     flex: 1;
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -724,12 +867,11 @@ body {
     min-width: 0;
 }
 
-.WSelect option { background: #1c1c1e; color: var(--text); }
-
 .WNum {
     width: 100%;
     text-align: right;
     font-variant-numeric: tabular-nums;
+    padding-right: 28px;
 }
 
 .WRange {
@@ -897,12 +1039,14 @@ body {
 }
 
 .WStepperBtn {
-    width: 24px;
-    background: rgba(255, 255, 255, 0.03);
+    width: 28px;
+    min-width: 28px;
+    background: rgba(255, 255, 255, 0.04);
     border: none;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 13px;
-    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
     cursor: pointer;
     padding: 0;
     transition: background 0.12s ease, color 0.12s ease;
@@ -983,13 +1127,15 @@ body {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: calc(84px + var(--safe-bottom));
+    bottom: calc(12px + var(--safe-bottom));
     height: 0;
-    z-index: 45;
+    /* Below panels, mobile bar, plugins, menus — only above the canvas */
+    z-index: 12;
     pointer-events: none;
 }
 
 body.TouchUi .TouchControls { display: block; }
+body.TouchUi .TouchControls[hidden] { display: none !important; }
 
 .Joystick {
     position: absolute;
@@ -1108,15 +1254,31 @@ body.TouchUi .TouchControls { display: block; }
 
     .PluginDock {
         left: calc(8px + var(--safe-left));
-        right: calc(8px + var(--safe-right));
+        right: auto;
         bottom: calc(8px + var(--safe-bottom));
-        max-width: none;
-        padding: 6px 8px;
+        max-width: min(280px, calc(100vw - 16px));
     }
 
-    .TouchControls { bottom: calc(96px + var(--safe-bottom)); }
+    .PluginDockMenu {
+        width: min(260px, calc(100vw - 16px));
+        max-height: min(48vh, 360px);
+    }
+
+    .TouchControls { bottom: calc(72px + var(--safe-bottom)); }
 
     .PluginWidget { max-height: calc(100vh - 190px); max-height: calc(100dvh - 190px); }
+
+    .Area,
+    .Area.Open {
+        z-index: 28;
+    }
+    .MobileBar { z-index: 32; }
+    .PluginDock { z-index: 40; }
+    .TouchControls {
+        bottom: calc(64px + var(--safe-bottom));
+        z-index: 12;
+    }
+    /* touch-stack */
 }
 
 @media (max-width: 480px) {
@@ -1124,7 +1286,8 @@ body.TouchUi .TouchControls { display: block; }
     .Joystick { width: 120px; height: 120px; }
     .JoystickKnob { width: 52px; height: 52px; margin: -26px 0 0 -26px; }
     .VerticalButton { width: 62px; height: 56px; }
-    .PluginDockBtn { padding: 6px 9px; }
+    .PluginDockLaunch { min-height: 40px; padding: 10px 14px; }
+    .PluginDockItem { min-height: 42px; padding: 11px 12px; }
 }
 
 @media (max-height: 520px) {
@@ -1144,7 +1307,8 @@ body.TouchUi .TouchControls { display: block; }
     .DropdownButton { min-height: 40px; }
     .HierarchyToggle { height: 30px; padding: 0 10px; }
     .HierAtom, .HierGroupHeader { padding-top: 7px; padding-bottom: 7px; }
-    .PluginDockBtn { min-height: 34px; }
+    .PluginDockLaunch { min-height: 40px; }
+    .PluginDockItem { min-height: 42px; }
     .SpawnBtn, .AtomSelect { min-height: 36px; }
     .WidgetBtn { width: 30px; height: 30px; }
     .WSectionHeader { padding: 10px; }
@@ -1154,4 +1318,337 @@ body.TouchUi .TouchControls { display: block; }
     .Prefs input[type="range"]::-webkit-slider-thumb { width: 22px; height: 22px; }
     .Prefs input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; }
     .Prefs label { margin-top: 9px; }
+}
+
+
+.WText {
+    flex: 1;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 12px;
+    font-family: inherit;
+    padding: 6px 8px;
+    outline: none;
+}
+.WText:focus {
+    border-color: var(--accent-border);
+    background: rgba(255, 255, 255, 0.09);
+}
+.BoundRow {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.BoundRowLabel {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    font-weight: 500;
+}
+
+.BoundInputs {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    width: 100%;
+}
+
+.BoundInput {
+    flex: 1 1 0;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    font-family: inherit;
+    padding: 7px 10px;
+    outline: none;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.BoundInput::-webkit-outer-spin-button,
+.BoundInput::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.BoundInput:focus {
+    border-color: var(--accent-border);
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.BoundInput::placeholder {
+    color: rgba(255, 255, 255, 0.25);
+}
+
+.SpawnOptsBtn {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.SpawnOptsBtn:hover,
+.SpawnOptsBtn[aria-expanded="true"] {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.24);
+}
+
+.SpawnMenu {
+    position: fixed;
+    z-index: 80;
+    width: min(280px, calc(100vw - 16px));
+    padding: 10px 12px 12px;
+    background: rgba(14, 14, 16, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: auto;
+}
+
+.SpawnMenu[hidden] { display: none !important; }
+
+.SpawnMenuTitle {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+}
+
+.SpawnMenuRow {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: 500;
+}
+
+.SpawnMenuRow input[type="number"] {
+    flex: 1;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 12px;
+    font-family: inherit;
+    padding: 5px 8px;
+    outline: none;
+}
+
+
+.SpawnMenuRow input[type="range"] {
+    flex: 1;
+    min-width: 0;
+}
+
+.SpawnMenuRow span {
+    min-width: 28px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 11px;
+}
+
+.SpawnMenuCheck {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.75);
+    cursor: pointer;
+}
+
+.SpawnMenuCheck input {
+    accent-color: #0a84ff;
+}
+
+.SpawnMenuHint {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
+    margin-top: 2px;
+}
+
+.AiCmdRow {
+    margin-top: 6px;
+}
+
+.AiCmdInput {
+    width: 100%;
+    flex: 1;
+}
+
+.AiCmdStatus {
+    margin-top: 6px;
+    min-height: 1.2em;
+}
+
+.AiExampleChip {
+    align-self: flex-start;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 11px;
+    padding: 4px 8px;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+}
+
+.AiExampleChip:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+/* Hide spinners on all number inputs in prefs/widgets */
+input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.NumField {
+    position: relative;
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    width: 100%;
+    align-items: stretch;
+    min-height: 30px;
+}
+
+.NumFieldInline {
+    flex: 1 1 auto;
+    display: inline-flex;
+    width: auto;
+    min-width: 88px;
+}
+
+.NumField input[type="number"] {
+    width: 100%;
+    min-height: 30px;
+    padding-right: 26px;
+    box-sizing: border-box;
+}
+
+.NumStepper {
+    position: absolute;
+    right: 1px;
+    top: 1px;
+    bottom: 1px;
+    width: 22px;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0 5px 5px 0;
+    overflow: hidden;
+    z-index: 2;
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.NumStepBtn {
+    flex: 1 1 50%;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.75);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 14px;
+    line-height: 0;
+}
+
+.NumStepBtn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+
+.NumStepBtn:active {
+    background: rgba(10, 132, 255, 0.4);
+}
+
+.NumStepBtn + .NumStepBtn {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.NumStepSvg {
+    display: block;
+    flex-shrink: 0;
+}
+
+.SpawnMenuRow .NumField {
+    flex: 1;
+}
+
+.SpawnOptsGlyph {
+    display: block;
+    width: 14px;
+    height: 14px;
+    margin: 0 auto;
+    border: 1.5px solid currentColor;
+    border-radius: 3px;
+    position: relative;
+    opacity: 0.85;
+}
+
+.SpawnOptsGlyph::before,
+.SpawnOptsGlyph::after {
+    content: "";
+    position: absolute;
+    background: currentColor;
+    border-radius: 1px;
+}
+
+.SpawnOptsGlyph::before {
+    width: 6px;
+    height: 1.5px;
+    left: 2.5px;
+    top: 3px;
+    box-shadow: 0 3.5px 0 currentColor;
+}
+
+.SpawnOptsGlyph::after {
+    width: 1.5px;
+    height: 1.5px;
+    border-radius: 50%;
+    right: 2.5px;
+    top: 2.75px;
+    box-shadow: 0 3.5px 0 currentColor;
 }
