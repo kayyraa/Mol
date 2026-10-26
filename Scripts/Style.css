@@ -14,20 +14,27 @@
     --radius: 12px;
     --radius-sm: 8px;
     --gap: 6px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
 }
 
 html {
     overscroll-behavior: none;
+    height: 100%;
 }
 
 body {
     background: #000;
     color: var(--text);
     margin: 0;
+    height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
 }
 
 * {
@@ -113,13 +120,25 @@ body {
     margin: 8px 0;
 }
 
-.Dashboard { left: 12px; top: 12px; width: 240px; }
+.Dashboard {
+    left: calc(12px + var(--safe-left));
+    top: calc(12px + var(--safe-top));
+    width: 240px;
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+    touch-action: pan-y;
+}
 
 .Hierarchy {
-    right: 12px;
-    top: 12px;
+    right: calc(12px + var(--safe-right));
+    top: calc(12px + var(--safe-top));
     width: 248px;
     max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
     overflow-x: hidden;
     overflow-y: auto;
     flex-direction: column;
@@ -128,10 +147,14 @@ body {
     touch-action: pan-y;
 }
 
-.Hierarchy::-webkit-scrollbar { width: 6px; }
-.Hierarchy::-webkit-scrollbar-track { background: transparent; }
-.Hierarchy::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 3px; }
-.Hierarchy::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
+.Hierarchy::-webkit-scrollbar,
+.Dashboard::-webkit-scrollbar { width: 6px; }
+.Hierarchy::-webkit-scrollbar-track,
+.Dashboard::-webkit-scrollbar-track { background: transparent; }
+.Hierarchy::-webkit-scrollbar-thumb,
+.Dashboard::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 3px; }
+.Hierarchy::-webkit-scrollbar-thumb:hover,
+.Dashboard::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
 
 .HierarchyHeader {
     display: flex;
@@ -335,6 +358,16 @@ body {
     cursor: pointer;
 }
 
+.Prefs input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border: none;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+}
+
 .Prefs label span {
     width: 40px;
     text-align: right;
@@ -357,6 +390,7 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
     width: fit-content;
+    max-width: calc(100vw - 24px);
     height: 30px;
     padding: 0 12px;
     z-index: 20;
@@ -370,38 +404,131 @@ body {
     letter-spacing: -0.01em;
 }
 
-.Area > .DisplayModes,
-.DisplayModes {
-    display: flex !important;
-    flex-direction: row !important;
-    flex-wrap: wrap !important;
-    justify-content: flex-start !important;
-    align-items: center !important;
-    gap: 5px;
-    margin-top: 6px;
+.Area > .Dropdown,
+.Dropdown {
+    display: block !important;
+    position: relative;
     width: 100%;
+    margin-top: 6px;
+    min-height: 0;
 }
 
-.ModeBtn {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: var(--text-secondary);
-    border-radius: 6px;
-    padding: 5px 9px;
-    font-size: 11px;
+.DropdownButton {
+    width: 100%;
+    min-height: 34px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text);
+    border-radius: var(--radius-sm);
+    padding: 7px 10px;
+    font-size: 12px;
     font-weight: 500;
+    text-align: left;
     cursor: pointer;
-    flex: 0 0 auto;
-    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    outline: none;
+    transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.ModeBtn:hover { background: rgba(255, 255, 255, 0.1); color: var(--text); }
-.ModeBtn.active { background: var(--accent-soft); border-color: var(--accent-border); color: #fff; }
+.DropdownButton:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.22); }
+.DropdownButton:focus-visible { border-color: var(--accent-border); }
+.DropdownButton[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent-border); }
+
+.DropdownLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+.DropdownChevron {
+    flex-shrink: 0;
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    opacity: 0.6;
+    transform: rotate(45deg) translate(-2px, -2px);
+    transition: transform 0.18s ease;
+}
+
+.DropdownButton[aria-expanded="true"] .DropdownChevron { transform: rotate(225deg) translate(-2px, -2px); }
+
+.DropdownMenu {
+    position: fixed;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 5px;
+    background: rgba(36, 36, 38, 0.94);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.05) inset;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+    animation: DropdownIn 0.14s ease;
+}
+
+.DropdownMenu[hidden] { display: none !important; }
+
+@keyframes DropdownIn {
+    from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.DropdownItem {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    text-align: left;
+    padding: 7px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+    transition: background 0.1s ease;
+}
+
+.DropdownItem:hover, .DropdownItem:focus-visible { background: rgba(255, 255, 255, 0.1); }
+.DropdownItem.active { background: var(--accent-soft); }
+
+.DropdownCheck {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.DropdownItem.active .DropdownCheck::before {
+    content: "";
+    display: block;
+    width: 4px;
+    height: 8px;
+    border-right: 2px solid var(--accent);
+    border-bottom: 2px solid var(--accent);
+    transform: rotate(45deg) translate(-1px, -1px);
+}
 
 .ContextMenu {
     position: fixed;
     z-index: 9999;
     min-width: 196px;
+    max-width: calc(100vw - 8px);
+    max-height: calc(100vh - 8px);
+    max-height: calc(100dvh - 8px);
+    overflow-y: auto;
     background: rgba(36, 36, 38, 0.94);
     backdrop-filter: blur(28px) saturate(180%);
     -webkit-backdrop-filter: blur(28px) saturate(180%);
@@ -414,6 +541,7 @@ body {
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.05) inset;
     pointer-events: auto;
     user-select: none;
+    -webkit-user-select: none;
 }
 
 .ContextMenu[hidden] { display: none !important; }
@@ -451,8 +579,8 @@ body {
 
 .PluginDock {
     position: fixed;
-    left: 12px;
-    bottom: 12px;
+    left: calc(12px + var(--safe-left));
+    bottom: calc(12px + var(--safe-bottom));
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
@@ -488,7 +616,7 @@ body {
     display: flex;
     flex-direction: column;
     min-width: 220px;
-    max-width: 460px;
+    max-width: min(460px, calc(100vw - 16px));
     max-height: min(80vh, 640px);
     background: rgba(14, 14, 16, 0.55);
     border: 1px solid rgba(255, 255, 255, 0.2);
@@ -546,6 +674,7 @@ body {
 .WidgetBody {
     padding: 10px 12px 12px;
     overflow-y: auto;
+    overflow-x: hidden;
     font-size: 12px;
     display: flex;
     flex-direction: column;
@@ -747,6 +876,7 @@ body {
 
 .WGraph {
     width: 100%;
+    max-width: 100%;
     height: 130px;
     border-radius: 7px;
     background: rgba(0, 0, 0, 0.35);
@@ -798,3 +928,230 @@ body {
 .WStepperInput::-webkit-outer-spin-button,
 .WStepperInput::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .WStepperInput[type=number] { -moz-appearance: textfield; }
+
+.MobileBar {
+    display: none;
+    position: fixed;
+    top: calc(8px + var(--safe-top));
+    left: calc(8px + var(--safe-left));
+    right: calc(8px + var(--safe-right));
+    z-index: 30;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    pointer-events: none;
+}
+
+.MobileBtn {
+    pointer-events: auto;
+    min-width: 76px;
+    height: 38px;
+    padding: 0 14px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 19px;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    box-shadow: var(--panel-shadow);
+    transition: background 0.15s ease, border-color 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.MobileBtn.active { background: var(--accent-soft); border-color: var(--accent-border); color: #fff; }
+
+.MobileTitle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+}
+
+.MobileFavicon { height: 16px; width: 16px; }
+
+.TouchControls {
+    display: none;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(84px + var(--safe-bottom));
+    height: 0;
+    z-index: 45;
+    pointer-events: none;
+}
+
+body.TouchUi .TouchControls { display: block; }
+
+.Joystick {
+    position: absolute;
+    left: calc(20px + var(--safe-left));
+    bottom: 0;
+    width: 132px;
+    height: 132px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.06) 0%, rgba(12, 12, 14, 0.5) 70%);
+    border: 1px solid var(--panel-border);
+    box-shadow: var(--panel-shadow), inset 0 0 0 18px rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    pointer-events: auto;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.JoystickKnob {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 56px;
+    height: 56px;
+    margin: -28px 0 0 -28px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.5), var(--accent-soft) 70%);
+    border: 1px solid var(--accent-border);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+    transition: transform 0.14s ease;
+    pointer-events: none;
+    will-change: transform;
+}
+
+.JoystickKnob.Active { transition: none; background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.7), rgba(10, 132, 255, 0.5) 70%); }
+
+.VerticalButtons {
+    position: absolute;
+    right: calc(20px + var(--safe-right));
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: auto;
+}
+
+.VerticalButton {
+    width: 68px;
+    height: 62px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 16px;
+    color: var(--text);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    box-shadow: var(--panel-shadow);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    cursor: pointer;
+    padding: 0;
+}
+
+.VerticalButton.Active { background: var(--accent-soft); border-color: var(--accent-border); color: #fff; }
+
+.VerticalArrow {
+    width: 9px;
+    height: 9px;
+    border-left: 2px solid currentColor;
+    border-top: 2px solid currentColor;
+    pointer-events: none;
+}
+
+.VerticalArrow.Up { transform: rotate(45deg) translate(2px, 2px); }
+.VerticalArrow.Down { transform: rotate(225deg) translate(2px, 2px); }
+
+@media (max-width: 900px) {
+    .MobileBar { display: flex; }
+
+    .Dashboard,
+    .Hierarchy {
+        display: none;
+        left: calc(8px + var(--safe-left));
+        right: calc(8px + var(--safe-right));
+        top: calc(54px + var(--safe-top));
+        width: auto;
+        max-height: calc(100vh - 150px);
+        max-height: calc(100dvh - 150px);
+        overflow-y: auto;
+        z-index: 35;
+    }
+
+    .Dashboard.Open,
+    .Hierarchy.Open { display: flex; }
+
+    .Hierarchy > .HierarchyTree,
+    .HierarchyTree {
+        height: min(240px, 34vh);
+        min-height: 120px;
+        max-height: min(240px, 34vh);
+    }
+
+    .PluginDock {
+        left: calc(8px + var(--safe-left));
+        right: calc(8px + var(--safe-right));
+        bottom: calc(8px + var(--safe-bottom));
+        max-width: none;
+        padding: 6px 8px;
+    }
+
+    .TouchControls { bottom: calc(96px + var(--safe-bottom)); }
+
+    .PluginWidget { max-height: calc(100vh - 190px); max-height: calc(100dvh - 190px); }
+}
+
+@media (max-width: 480px) {
+    .Area { padding: 10px 12px; }
+    .Joystick { width: 120px; height: 120px; }
+    .JoystickKnob { width: 52px; height: 52px; margin: -26px 0 0 -26px; }
+    .VerticalButton { width: 62px; height: 56px; }
+    .PluginDockBtn { padding: 6px 9px; }
+}
+
+@media (max-height: 520px) {
+    .Dashboard,
+    .Hierarchy { max-height: calc(100vh - 70px); max-height: calc(100dvh - 70px); }
+    .TouchControls { bottom: calc(60px + var(--safe-bottom)); }
+    .Joystick { width: 108px; height: 108px; }
+    .JoystickKnob { width: 46px; height: 46px; margin: -23px 0 0 -23px; }
+    .VerticalButton { height: 48px; }
+}
+
+@media (pointer: coarse) {
+    .Tooltip { display: none; }
+
+    .ContextMenu button { padding: 11px 12px; }
+    .DropdownItem { min-height: 42px; }
+    .DropdownButton { min-height: 40px; }
+    .HierarchyToggle { height: 30px; padding: 0 10px; }
+    .HierAtom, .HierGroupHeader { padding-top: 7px; padding-bottom: 7px; }
+    .PluginDockBtn { min-height: 34px; }
+    .SpawnBtn, .AtomSelect { min-height: 36px; }
+    .WidgetBtn { width: 30px; height: 30px; }
+    .WSectionHeader { padding: 10px; }
+    .WStepperBtn { width: 32px; }
+
+    .Prefs input[type="range"] { height: 6px; }
+    .Prefs input[type="range"]::-webkit-slider-thumb { width: 22px; height: 22px; }
+    .Prefs input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; }
+    .Prefs label { margin-top: 9px; }
+}

@@ -339,90 +339,56 @@ function CreateTextTexture(Gl, Text) {
     return Texture;
 }
 
-const VertexShaderSource = `
-attribute vec3 APosition;
-attribute vec3 ANormal;
-uniform mat4 UModel;
+globalThis.ShaderSources = {
+    Vertex: null,
+    Fragment: null,
+    OutlineVertex: null,
+    OutlineFragment: null,
+    BondVertex: null,
+    BondFragment: null
+};
+
+globalThis.LoadShaders = async function () {
+    const Fallbacks = {
+        Vertex: '#version 300 es\nin vec3 APosition;\nin vec3 ANormal;\nuniform mat4 UModel;\nuniform mat4 UView;\nuniform mat4 UProjection;\nout vec3 VNormal;\nout vec3 VWorldPosition;\nout vec3 VLocalPosition;\nvoid main() {\n    VLocalPosition = APosition;\n    vec4 WorldPosition = UModel * vec4(APosition, 1.0);\n    VWorldPosition = WorldPosition.xyz;\n    VNormal = mat3(UModel) * ANormal;\n    gl_Position = UProjection * UView * WorldPosition;\n}\n',
+        Fragment: '#version 300 es\nprecision mediump float;\nin vec3 VNormal;\nin vec3 VWorldPosition;\nin vec3 VLocalPosition;\nuniform vec3 UColor;\nuniform vec3 ULightPosition;\nuniform vec3 UCameraPosition;\nuniform sampler2D UTexture;\nout vec4 FragColor;\nconst float PI = 3.14159265359;\nvoid main() {\n    vec3 LocalNorm = normalize(VLocalPosition);\n    float U = 0.5 - atan(LocalNorm.z, LocalNorm.x) / (2.0 * PI);\n    float V = 0.5 - asin(clamp(LocalNorm.y, -1.0, 1.0)) / PI;\n    vec4 TexColor = texture(UTexture, vec2(U, V));\n    vec3 Normal = normalize(VNormal);\n    vec3 LightDirection = normalize(ULightPosition - VWorldPosition);\n    vec3 ViewDirection = normalize(UCameraPosition - VWorldPosition);\n    vec3 HalfVector = normalize(LightDirection + ViewDirection);\n    float NdotL = max(dot(Normal, LightDirection), 0.0);\n    float Diffuse;\n    if (NdotL > 0.8) Diffuse = 1.0;\n    else if (NdotL > 0.4) Diffuse = 0.6;\n    else if (NdotL > 0.15) Diffuse = 0.35;\n    else Diffuse = 0.15;\n    float NdotH = max(dot(Normal, HalfVector), 0.0);\n    float SpecularStrength = pow(NdotH, 32.0);\n    float Specular = step(0.5, SpecularStrength) * 0.6;\n    float Edge = dot(ViewDirection, Normal);\n    float Silhouette = step(0.25, Edge);\n    vec3 BaseColor = mix(UColor, TexColor.rgb, TexColor.a);\n    vec3 FinalColor = (BaseColor * Diffuse + vec3(1.0) * Specular) * Silhouette;\n    FragColor = vec4(FinalColor, 1.0);\n}\n',
+        OutlineVertex: '#version 300 es\nin vec3 APosition;\nuniform mat4 UModel;\nuniform mat4 UView;\nuniform mat4 UProjection;\nuniform float UOutlineScale;\nvoid main() {\n    vec4 ScaledPosition = vec4(APosition * UOutlineScale, 1.0);\n    gl_Position = UProjection * UView * UModel * ScaledPosition;\n}\n',
+        OutlineFragment: '#version 300 es\nprecision mediump float;\nuniform vec4 UColor;\nout vec4 FragColor;\nvoid main() { FragColor = UColor; }\n'
+    };
+    const Files = [
+        ["Vertex", "Scripts/Shaders/Vertex.glsl"],
+        ["Fragment", "Scripts/Shaders/Fragment.glsl"],
+        ["OutlineVertex", "Scripts/Shaders/OutlineVertex.glsl"],
+        ["OutlineFragment", "Scripts/Shaders/OutlineFragment.glsl"]
+    ];
+    await Promise.all(Files.map(async ([Key, Url]) => {
+        try {
+            const Res = await fetch(Url);
+            if (!Res.ok) throw new Error("HTTP " + Res.status);
+            ShaderSources[Key] = await Res.text();
+        } catch (Err) {
+            console.warn("Shader fetch failed for", Url, "- using embedded fallback");
+            ShaderSources[Key] = Fallbacks[Key];
+        }
+    }));
+    ShaderSources.BondVertex = `#version 300 es
+in vec3 APosition;
+in vec4 AColor;
 uniform mat4 UView;
 uniform mat4 UProjection;
-varying vec3 VNormal;
-varying vec3 VWorldPosition;
-varying vec3 VLocalPosition;
+out vec4 VColor;
 void main() {
-    VLocalPosition = APosition;
-    vec4 WorldPosition = UModel * vec4(APosition, 1.0);
-    VWorldPosition = WorldPosition.xyz;
-    VNormal = mat3(UModel) * ANormal;
-    gl_Position = UProjection * UView * WorldPosition;
+    VColor = AColor;
+    gl_Position = UProjection * UView * vec4(APosition, 1.0);
 }
 `;
-
-const FragmentShaderSource = `
+    ShaderSources.BondFragment = `#version 300 es
 precision mediump float;
-varying vec3 VNormal;
-varying vec3 VWorldPosition;
-varying vec3 VLocalPosition;
-uniform vec3 UColor;
-uniform vec3 ULightPosition;
-uniform vec3 UCameraPosition;
-uniform sampler2D UTexture;
-const float PI = 3.14159265359;
-void main() {
-    vec3 LocalNorm = normalize(VLocalPosition);
-    float U = 0.5 - atan(LocalNorm.z, LocalNorm.x) / (2.0 * PI);
-    float V = 0.5 - asin(clamp(LocalNorm.y, -1.0, 1.0)) / PI;
-    vec4 TexColor = texture2D(UTexture, vec2(U, V));
-    vec3 Normal = normalize(VNormal);
-    vec3 LightDirection = normalize(ULightPosition - VWorldPosition);
-    vec3 ViewDirection = normalize(UCameraPosition - VWorldPosition);
-    vec3 HalfVector = normalize(LightDirection + ViewDirection);
-    float NdotL = max(dot(Normal, LightDirection), 0.0);
-    float Diffuse;
-    if (NdotL > 0.8) Diffuse = 1.0;
-    else if (NdotL > 0.4) Diffuse = 0.6;
-    else if (NdotL > 0.15) Diffuse = 0.35;
-    else Diffuse = 0.15;
-    float NdotH = max(dot(Normal, HalfVector), 0.0);
-    float SpecularStrength = pow(NdotH, 32.0);
-    float Specular = step(0.5, SpecularStrength) * 0.6;
-    float Edge = dot(ViewDirection, Normal);
-    float Silhouette = step(0.25, Edge);
-    vec3 BaseColor = mix(UColor, TexColor.rgb, TexColor.a);
-    vec3 FinalColor = (BaseColor * Diffuse + vec3(1.0) * Specular) * Silhouette;
-    gl_FragColor = vec4(FinalColor, 1.0);
-}
+in vec4 VColor;
+out vec4 FragColor;
+void main() { FragColor = VColor; }
 `;
-
-const OutlineVertexShaderSource = `
-attribute vec3 APosition;
-uniform mat4 UModel;
-uniform mat4 UView;
-uniform mat4 UProjection;
-uniform float UOutlineScale;
-void main() {
-    vec4 ScaledPosition = vec4(APosition * UOutlineScale, 1.0);
-    gl_Position = UProjection * UView * UModel * ScaledPosition;
-}
-`;
-
-const OutlineFragmentShaderSource = `
-precision mediump float;
-uniform vec4 UColor;
-void main() { gl_FragColor = UColor; }
-`;
-
-const BondVertexShaderSource = `
-attribute vec3 APosition;
-uniform mat4 UView;
-uniform mat4 UProjection;
-void main() { gl_Position = UProjection * UView * vec4(APosition, 1.0); }
-`;
-
-const BondFragmentShaderSource = `
-precision mediump float;
-uniform vec4 UColor;
-void main() { gl_FragColor = UColor; }
-`;
+};
 
 globalThis.CompileShader = function(Gl, Source, Type) {
     const Shader = Gl.createShader(Type);
@@ -558,12 +524,12 @@ globalThis.GetBondInfo = function(KeyA, KeyB) {
 globalThis.Renderer = class {
     constructor(Canvas) {
         this.Canvas = Canvas;
-        this.Gl = Canvas.getContext("webgl", { antialias: true, powerPreference: "high-performance" });
-        if (!this.Gl) throw new Error("WebGL is not supported in this environment");
+        this.Gl = Canvas.getContext("webgl2", { antialias: true, powerPreference: "high-performance" });
+        if (!this.Gl) throw new Error("WebGL2 is not supported in this environment");
 
-        this.Program = CreateProgram(this.Gl, VertexShaderSource, FragmentShaderSource);
-        this.OutlineProgram = CreateProgram(this.Gl, OutlineVertexShaderSource, OutlineFragmentShaderSource);
-        this.BondProgram = CreateProgram(this.Gl, BondVertexShaderSource, BondFragmentShaderSource);
+        this.Program = CreateProgram(this.Gl, ShaderSources.Vertex, ShaderSources.Fragment);
+        this.OutlineProgram = CreateProgram(this.Gl, ShaderSources.OutlineVertex, ShaderSources.OutlineFragment);
+        this.BondProgram = CreateProgram(this.Gl, ShaderSources.BondVertex, ShaderSources.BondFragment);
 
         this.AttributeLocations = {
             Position: this.Gl.getAttribLocation(this.Program, "APosition"),
@@ -588,10 +554,11 @@ globalThis.Renderer = class {
         };
         this.BondLocations = {
             Position: this.Gl.getAttribLocation(this.BondProgram, "APosition"),
+            Color: this.Gl.getAttribLocation(this.BondProgram, "AColor"),
             View: this.Gl.getUniformLocation(this.BondProgram, "UView"),
-            Projection: this.Gl.getUniformLocation(this.BondProgram, "UProjection"),
-            Color: this.Gl.getUniformLocation(this.BondProgram, "UColor")
+            Projection: this.Gl.getUniformLocation(this.BondProgram, "UProjection")
         };
+        this.BondColorBuffer = this.Gl.createBuffer();
 
         this.CameraPosition = [0, 0, 900];
         this.CameraTarget = [0, 0, 0];
@@ -618,16 +585,19 @@ globalThis.Renderer = class {
         this.SettleFrames = 240;
         this.ForcedBonds = new Set();
         this.AngleStiffness = 2.0;
-        this.VdwStrength = 0.6;
-        this.MaxParticles = 500;
+        this.VdwStrength = 0.45;
+        this.MaxParticles = 280;
         this.IonicCoordination = 6;
+        this.MetalCoordination = 12;
         this.IonicChargeThreshold = 0.7;
+        this.MetallicConstraintIterations = 4;
+        this.MetallicConstraintStrength = 0.55;
 
         this.Grid = new SpatialGrid(300);
         this.AngleNeighborMap = new Map();
         this.AngleNeighborSignature = "";
         this.BondsFrameCounter = 0;
-        this.BondsRebuildInterval = 2;
+        this.BondsRebuildInterval = 4;
         this.BondsDirty = true;
         this.LastObjectCount = 0;
         this.LastForcedBondCount = 0;
@@ -713,11 +683,21 @@ globalThis.Renderer = class {
 
     ClassifyBond(AtomA, AtomB, Info, ChargeProduct) {
         if (Info.Noble) return "noble";
+        if (Info.Hydrogen) return "hydrogen";
         if (Info.Metallic) return "metallic";
         const IsIonicByCharge = ChargeProduct < -this.IonicChargeThreshold;
         const IsIonicByPair = !!Info.Ionic;
         if (IsIonicByCharge || IsIonicByPair) return "ionic";
         return "covalent";
+    }
+
+    IsHydrogenBondCandidate(AtomA, AtomB) {
+        const Donors = new Set(["N", "O", "F"]);
+        const Acceptors = new Set(["N", "O", "F"]);
+        const Ka = AtomA.Key, Kb = AtomB.Key;
+        if (Ka === "H" && Acceptors.has(Kb)) return true;
+        if (Kb === "H" && Acceptors.has(Ka)) return true;
+        return false;
     }
 
     GenerateBonds() {
@@ -742,10 +722,14 @@ globalThis.Renderer = class {
                 const EquilibriumDistance = RadiusA + AtomB.EffRadius + 28.0;
 
                 if (Distance < EquilibriumDistance * 2.6) {
-                    const Info = GetBondInfo(AtomA.Key, AtomB.Key);
+                    let Info = GetBondInfo(AtomA.Key, AtomB.Key);
                     if (Info.Noble) return;
-                    const Affinity = Chem ? Chem.BondAffinity(AtomA.Key, AtomB.Key) : 0.6;
-                    if (Affinity < 0.04 && !Info.Ionic && !Info.Metallic) return;
+                    const IsHCand = this.IsHydrogenBondCandidate(AtomA, AtomB);
+                    const CovalentEq = RadiusA + AtomB.EffRadius + 28.0;
+                    const IsLongRangeH = IsHCand && Distance > CovalentEq * 1.15;
+                    if (IsLongRangeH) Info = { energy: 25, stability: 0.22, explosive: 0.05, Hydrogen: true };
+                    const Affinity = IsLongRangeH ? 0.35 : (Chem ? Chem.BondAffinity(AtomA.Key, AtomB.Key) : 0.6);
+                    if (Affinity < 0.04 && !Info.Ionic && !Info.Metallic && !IsLongRangeH) return;
                     const StretchFactor = Math.max(0, 1 - (Distance - EquilibriumDistance) / (EquilibriumDistance * 1.2));
                     const Key = IndexA < IndexB ? `${IndexA}_${IndexB}` : `${IndexB}_${IndexA}`;
                     const IsMetallic = !!(Info.Metallic && Metals && Metals.has(AtomA.Key) && Metals.has(AtomB.Key));
@@ -791,8 +775,25 @@ globalThis.Renderer = class {
 
             const CountA = BondCounts.get(AtomA);
             const CountB = BondCounts.get(AtomB);
-            const MaxA = IsIonic ? IonicMax : AtomA.Atom.Valence;
-            const MaxB = IsIonic ? IonicMax : AtomB.Atom.Valence;
+            const IsHydrogen = BondType === "hydrogen";
+            const MetalMax = this.MetalCoordination || 12;
+            let MaxA, MaxB;
+            if (Forced) {
+                MaxA = MetalMax;
+                MaxB = MetalMax;
+            } else if (IsHydrogen) {
+                MaxA = 12;
+                MaxB = 12;
+            } else if (IsIonic) {
+                MaxA = IonicMax;
+                MaxB = IonicMax;
+            } else if (IsMetallic) {
+                MaxA = MetalMax;
+                MaxB = MetalMax;
+            } else {
+                MaxA = AtomA.Atom.Valence;
+                MaxB = AtomB.Atom.Valence;
+            }
             if (CountA >= MaxA || CountB >= MaxB) return false;
 
             const Key = IndexA < IndexB ? `${IndexA}_${IndexB}` : `${IndexB}_${IndexA}`;
@@ -804,13 +805,27 @@ globalThis.Renderer = class {
             let UseInfo = Info;
 
             if (Forced) {
-                EqDist = Prev ? Prev.eqDist : Distance;
+                if (Prev && Prev.eqDist) {
+                    EqDist = Prev.eqDist;
+                } else if (IsMetallic || (Info && Info.Metallic)) {
+                    EqDist = AtomA.EffRadius + AtomB.EffRadius + 22;
+                    UseInfo = { energy: 200, stability: 0.92, explosive: 0.02, Metallic: true };
+                } else if (IsIonic || (Info && Info.Ionic)) {
+                    EqDist = AtomA.EffRadius + AtomB.EffRadius + 6;
+                    UseInfo = { energy: Info.energy || 380, stability: 0.96, explosive: 0.02, Ionic: true };
+                } else {
+                    EqDist = Math.max(8, Distance);
+                }
+            } else if (BondType === "hydrogen") {
+                EqDist = AtomA.EffRadius + AtomB.EffRadius + 48;
+                UseInfo = { energy: 25, stability: 0.22, explosive: 0.05, Hydrogen: true };
+                Order = 1;
             } else if (IsIonic) {
                 EqDist = AtomA.EffRadius + AtomB.EffRadius + 6;
                 UseInfo = { energy: Info.energy, stability: 0.96, explosive: 0.02, Ionic: true };
             } else if (IsMetallic) {
                 EqDist = AtomA.EffRadius + AtomB.EffRadius + 22;
-                UseInfo = { energy: 200, stability: 0.85, explosive: 0.02, Metallic: true };
+                UseInfo = { energy: 200, stability: 0.92, explosive: 0.02, Metallic: true };
             } else if (globalThis.Chemistry && globalThis.Chemistry.ProposeBondOrder) {
                 const SlackA = AtomA.Atom.Valence - CountA;
                 const SlackB = AtomB.Atom.Valence - CountB;
@@ -833,25 +848,36 @@ globalThis.Renderer = class {
             }
 
             const WasBonded = this.PreviousBondPairs.has(Key);
+            const Stab = Math.max(0.02, Math.min(1, UseInfo.stability || 0.5));
+            const EnergyNorm = Math.min(1.0, (UseInfo.energy || 180) / 450);
+            const PrevAge = (Prev && Prev.Age) ? Prev.Age : 0;
             let FormMul;
-            if (Forced) FormMul = 2.4 + this.Temperature * 0.5;
-            else if (IsIonic) FormMul = 1.6 + this.Temperature * 0.3;
-            else if (IsMetallic) FormMul = 2.2 + this.Temperature * 0.4;
+            if (Forced) FormMul = 3.6 + this.Temperature * 0.2;
+            else if (BondType === "hydrogen") FormMul = 1.12 + Stab * 0.22 + this.Temperature * 0.1;
+            else if (IsIonic) FormMul = 1.4 + Stab * 0.5 + EnergyNorm * 0.2 + this.Temperature * 0.12;
+            else if (IsMetallic) FormMul = 2.4 + Stab * 0.85 + EnergyNorm * 0.3 + this.Temperature * 0.12 + Math.min(0.4, PrevAge * 0.006);
             else if (WasBonded) {
-                FormMul = 1.85 + this.Temperature * 0.4 + (1 - UseInfo.stability) * 0.25;
-            } else FormMul = 1.15 + UseInfo.stability * 0.45;
+                FormMul = 1.35 + Stab * 0.95 + EnergyNorm * 0.4 + this.Temperature * 0.15 + Math.min(0.35, PrevAge * 0.004);
+            } else {
+                FormMul = 1.12 + Stab * 0.35 + EnergyNorm * 0.15;
+            }
 
             if (Distance > EqDist * FormMul) {
-                if (Forced) this.ForcedBonds.delete(Key);
+                if (Forced) {
+                    if (Distance > EqDist * (FormMul + 2.0)) this.ForcedBonds.delete(Key);
+                    return false;
+                }
                 return false;
             }
 
             const Affinity = this.GetBondAffinityCached(AtomA, AtomB);
             const FinalStability = Forced
-                ? Math.max(UseInfo.stability, 0.7)
-                : IsIonic || IsMetallic
+                ? Math.max(UseInfo.stability, 0.88)
+                : IsIonic
                     ? UseInfo.stability
-                    : UseInfo.stability * (0.35 + 0.65 * Affinity);
+                    : IsMetallic
+                        ? Math.max(UseInfo.stability, 0.88)
+                        : UseInfo.stability * (0.35 + 0.65 * Affinity);
 
             ValidBondPositions.push(AtomA.Position, AtomB.Position);
             ValidBondPairs.add(Key);
@@ -870,8 +896,9 @@ globalThis.Renderer = class {
                 BondType,
                 Affinity
             });
-            BondCounts.set(AtomA, CountA + Order);
-            BondCounts.set(AtomB, CountB + Order);
+            const ValenceCost = BondType === "hydrogen" ? 0 : Order;
+            BondCounts.set(AtomA, CountA + ValenceCost);
+            BondCounts.set(AtomB, CountB + ValenceCost);
             return true;
         };
 
@@ -894,7 +921,7 @@ globalThis.Renderer = class {
             CommitBond(P.IndexA, P.IndexB, P.Distance, P.EquilibriumDistance, P.Info, true);
         }
 
-        const MinStability = Math.max(0.03, 0.16 - this.Temperature * 0.18 - (this.FreeEnergy || 0) * 0.04);
+        const MinStability = Math.max(0.02, 0.12 - this.Temperature * 0.22 - (this.FreeEnergy || 0) * 0.05);
         for (const P of Pairs) {
             const { AtomA, AtomB, IndexA, IndexB, Distance, EquilibriumDistance, Info } = P;
             const Key = IndexA < IndexB ? `${IndexA}_${IndexB}` : `${IndexB}_${IndexA}`;
@@ -1064,6 +1091,62 @@ globalThis.Renderer = class {
         }
     }
 
+    ProjectMetallicConstraints() {
+        const Iterations = this.MetallicConstraintIterations || 0;
+        if (Iterations <= 0 || !this.BondData || this.BondData.size === 0) return;
+        const Strength = this.MetallicConstraintStrength || 0.5;
+        const Metals = globalThis.Metals;
+
+        for (let It = 0; It < Iterations; It++) {
+            for (const [Key, Data] of this.BondData) {
+                if (!this.ActiveBondPairs.has(Key)) continue;
+                const BondType = Data.BondType || "covalent";
+                if (BondType !== "metallic" && !Data.Forced) continue;
+
+                const A = Objects[Data.IndexA];
+                const B = Objects[Data.IndexB];
+                if (!A || !B) continue;
+                if (BondType !== "metallic" && !(Metals && Metals.has(A.Key) && Metals.has(B.Key))) continue;
+
+                const Dx = B.Position[0] - A.Position[0];
+                const Dy = B.Position[1] - A.Position[1];
+                const Dz = B.Position[2] - A.Position[2];
+                const Dist = Math.sqrt(Dx * Dx + Dy * Dy + Dz * Dz) + 1e-6;
+                const Eq = Math.max(8, Data.eqDist || 40);
+                const Diff = Dist - Eq;
+                if (Math.abs(Diff) < 0.02) continue;
+
+                const InvMassA = A.MassInv || 0.01;
+                const InvMassB = B.MassInv || 0.01;
+                const InvMassSum = InvMassA + InvMassB;
+                if (InvMassSum < 1e-8) continue;
+
+                const Corr = Diff * Strength / InvMassSum;
+                const Ux = Dx / Dist, Uy = Dy / Dist, Uz = Dz / Dist;
+                const CorrA = Corr * InvMassA;
+                const CorrB = Corr * InvMassB;
+
+                A.Position[0] += Ux * CorrA;
+                A.Position[1] += Uy * CorrA;
+                A.Position[2] += Uz * CorrA;
+                B.Position[0] -= Ux * CorrB;
+                B.Position[1] -= Uy * CorrB;
+                B.Position[2] -= Uz * CorrB;
+
+                const RelV = (B.Velocity[0] - A.Velocity[0]) * Ux
+                    + (B.Velocity[1] - A.Velocity[1]) * Uy
+                    + (B.Velocity[2] - A.Velocity[2]) * Uz;
+                const VCorr = RelV * 0.35 / InvMassSum;
+                A.Velocity[0] += Ux * VCorr * InvMassA;
+                A.Velocity[1] += Uy * VCorr * InvMassA;
+                A.Velocity[2] += Uz * VCorr * InvMassA;
+                B.Velocity[0] -= Ux * VCorr * InvMassB;
+                B.Velocity[1] -= Uy * VCorr * InvMassB;
+                B.Velocity[2] -= Uz * VCorr * InvMassB;
+            }
+        }
+    }
+
     ApplyVanDerWaals() {
         if (this.VdwStrength <= 0) return;
         const Soft = 20;
@@ -1221,6 +1304,68 @@ globalThis.Renderer = class {
         return true;
     }
 
+    BreakJointsOf(Atom) {
+        const Idx = Objects.indexOf(Atom);
+        if (Idx < 0) return;
+        const ToRemove = [];
+        for (const Key of this.ActiveBondPairs) {
+            const [A, B] = Key.split("_").map(Number);
+            if (A === Idx || B === Idx) ToRemove.push(Key);
+        }
+        for (const Key of ToRemove) {
+            this.ActiveBondPairs.delete(Key);
+            this.BondData.delete(Key);
+            this.ForcedBonds.delete(Key);
+        }
+        this.BondsDirty = true;
+    }
+
+    RemoveAtom(Atom) {
+        const Idx = Objects.indexOf(Atom);
+        if (Idx < 0) return false;
+
+        this.BreakJointsOf(Atom);
+
+        const NewForced = new Set();
+        for (const Key of this.ForcedBonds) {
+            const [A, B] = Key.split("_").map(Number);
+            if (A === Idx || B === Idx) continue;
+            const NA = A > Idx ? A - 1 : A;
+            const NB = B > Idx ? B - 1 : B;
+            NewForced.add(`${Math.min(NA, NB)}_${Math.max(NA, NB)}`);
+        }
+        this.ForcedBonds = NewForced;
+
+        const NewPairs = new Set();
+        const NewData = new Map();
+        for (const Key of this.ActiveBondPairs) {
+            const [A, B] = Key.split("_").map(Number);
+            if (A === Idx || B === Idx) continue;
+            const NA = A > Idx ? A - 1 : A;
+            const NB = B > Idx ? B - 1 : B;
+            const NKey = `${Math.min(NA, NB)}_${Math.max(NA, NB)}`;
+            NewPairs.add(NKey);
+            const Prev = this.BondData.get(Key);
+            if (Prev) {
+                NewData.set(NKey, {
+                    ...Prev,
+                    IndexA: Math.min(NA, NB),
+                    IndexB: Math.max(NA, NB)
+                });
+            }
+        }
+        this.ActiveBondPairs = NewPairs;
+        this.BondData = NewData;
+        this.PreviousBondPairs = new Set(NewPairs);
+
+        Objects.splice(Idx, 1);
+        if (this.SelectedObject === Atom) this.SelectedObject = null;
+        if (this.HoveredObject === Atom) this.HoveredObject = null;
+        this.BondsDirty = true;
+        this.AngleNeighborSignature = "";
+        return true;
+    }
+
     Step() {
         if (this.TargetTimeScale <= 0) { this.TimeScale = 0; return; }
         this.TimeScale += (this.TargetTimeScale - this.TimeScale) * 0.15;
@@ -1233,7 +1378,7 @@ globalThis.Renderer = class {
         if (this.LastForcedBondCount !== this.ForcedBonds.size) { this.BondsDirty = true; this.LastForcedBondCount = this.ForcedBonds.size; }
 
         const TimeStep = 0.008 * this.TimeScale;
-        const Damping = Math.pow(0.992 - this.Temperature * 0.004, Math.max(0.25, this.TimeScale));
+        const Damping = Math.pow(0.985 - this.Temperature * 0.006, Math.max(0.25, this.TimeScale));
 
         this.Grid.Clear();
         for (let i = 0; i < ObjectCount; i++) {
@@ -1257,7 +1402,7 @@ globalThis.Renderer = class {
                 if (this.ActiveBondPairs.has(Key)) continue;
                 const Data = PreviousBondData.get(Key);
                 if (!Data) continue;
-                if ((Data.Age || 0) < 40) continue;
+                if ((Data.Age || 0) < 90) continue;
                 if ((this.SettleFrames || 0) > 0) continue;
 
                 const AtomA = Objects[Data.IndexA];
@@ -1302,12 +1447,10 @@ globalThis.Renderer = class {
                         (AtomA.Position[1] + AtomB.Position[1]) * 0.5,
                         (AtomA.Position[2] + AtomB.Position[2]) * 0.5
                     ];
-                    const Flash = Math.min(24, 4 + Math.floor(Released * 0.8 + Explosive * 10));
-                    this.EmitBurst(Mid, Flash, "visible", 0.9 + Explosive * 0.6);
-                    this.EmitBurst(Mid, Math.max(1, Math.floor(Flash * 0.35)), "photon", 1.1);
-                    if (Explosive > 0.55) this.EmitBurst(Mid, 2 + Math.floor(Explosive * 3), "xray", 1.0);
-                    if (Explosive > 0.8) this.EmitBurst(Mid, 2, "gamma", 1.1);
-                    if (Explosive > 0.7) this.EmitBurst(Mid, 2, "beta", 0.9);
+                    const Flash = Math.min(10, 2 + Math.floor(Released * 0.35 + Explosive * 4));
+                    this.EmitBurst(Mid, Flash, "visible", 0.8 + Explosive * 0.4);
+                    if (Explosive > 0.45) this.EmitBurst(Mid, Math.max(1, Math.floor(Flash * 0.25)), "photon", 1.0);
+                    if (Explosive > 0.7) this.EmitBurst(Mid, 1, "xray", 0.9);
                 }
 
                 if (Explosive > 0.5 && Released > 5) {
@@ -1349,11 +1492,15 @@ globalThis.Renderer = class {
             if (A) A.BondOrderSum += Data.order || 1;
             if (B) B.BondOrderSum += Data.order || 1;
         }
+        const MetalsSet = globalThis.Metals;
         for (let i = 0; i < ObjectCount; i++) {
             const O = Objects[i];
             const V = O.Atom.Valence || 1;
             const ChargeAbs = Math.abs(O.ExtraCharge || 0);
-            const EffectiveValence = ChargeAbs > 0.5 ? Math.max(V, 6) : V;
+            const IsMetal = MetalsSet && MetalsSet.has(O.Key);
+            const EffectiveValence = IsMetal
+                ? Math.max(V, this.MetalCoordination || 12)
+                : (ChargeAbs > 0.5 ? Math.max(V, 6) : V);
             O.BondSatisfaction = EffectiveValence > 0 ? Math.min(1, O.BondOrderSum / EffectiveValence) : 1;
             O.Force[0] = 0; O.Force[1] = 0; O.Force[2] = 0;
         }
@@ -1389,36 +1536,54 @@ globalThis.Renderer = class {
 
                     const OrderBoost = 1 + (Order - 1) * 0.7;
 
-                    let SpringStiffness;
-                    if (BondType === "ionic") SpringStiffness = (3.0 + (Energy / 400) * 4.0) * OrderBoost;
-                    else if (BondType === "metallic") SpringStiffness = (4.0 + (Energy / 400) * 5.0) * OrderBoost;
-                    else SpringStiffness = (8.0 + (Energy / 400) * 12.0) * OrderBoost;
+                    const EnergyCap = Math.min(Energy || 180, 380);
+                    const Age = Data.Age || 1;
+                    const AgeRamp = Math.min(1, 0.25 + Age / 40);
 
-                    const Displacement = Distance - EqDist;
+                    let SpringStiffness;
+                    if (BondType === "hydrogen") SpringStiffness = (0.45 + (EnergyCap / 400) * 0.6) * OrderBoost;
+                    else if (BondType === "ionic") SpringStiffness = (2.4 + (EnergyCap / 400) * 3.2) * OrderBoost;
+                    else if (BondType === "metallic") {
+                        SpringStiffness = (14.0 + (EnergyCap / 400) * 10.0) * OrderBoost;
+                        if (Data.Forced) SpringStiffness *= 1.35;
+                    }
+                    else SpringStiffness = (4.5 + (EnergyCap / 400) * 7.5) * Math.max(0.35, Stability) * OrderBoost;
+
+                    SpringStiffness *= AgeRamp;
+
+                    const SafeEq = Math.max(8, EqDist || 40);
+                    const Displacement = Distance - SafeEq;
 
                     const HeatFactor = Math.max(0, (this.Temperature - 0.25) / 0.75);
-                    const StrainFactor = Math.max(0, (Displacement - EqDist * 0.15) / Math.max(10, EqDist * 0.35));
+                    const StrainFactor = Math.max(0, (Displacement - SafeEq * 0.2) / Math.max(10, SafeEq * 0.4));
                     const Settling = (this.SettleFrames || 0) > 0 ? 0 : 1;
-                    const TypeInstabDamp = BondType === "ionic" ? 0.15
-                                         : BondType === "metallic" ? 0.25
-                                         : 1.0;
+                    const TypeInstabDamp = BondType === "ionic" ? 0.12
+                                         : BondType === "metallic" ? 0.04
+                                         : BondType === "hydrogen" ? 0.5
+                                         : 0.85;
                     const InstabilityRepulsion =
-                        ((1.0 - Stability) * 3.0 + Explosive * 4.0) *
-                        (0.02 + HeatFactor * 0.75 + Math.max(0, StrainFactor) * 0.85 + (this.FreeEnergy || 0) * 0.3) *
+                        ((1.0 - Math.min(1, Stability)) * 2.2 + (Explosive || 0) * 3.0) *
+                        (0.015 + HeatFactor * 0.55 + Math.max(0, StrainFactor) * 0.55 + (this.FreeEnergy || 0) * 0.22) *
                         Settling * TypeInstabDamp;
 
-                    const ColdBoost = (this.Temperature < 0.2 || (this.SettleFrames || 0) > 0) ? 1.6 : 1.0;
+                    const ColdBoost = (this.Temperature < 0.2 || (this.SettleFrames || 0) > 0)
+                        ? (BondType === "metallic" ? 1.6 : 1.25)
+                        : 1.0;
                     ForceMagnitude = SpringStiffness * ColdBoost * Displacement - InstabilityRepulsion;
 
-                    if (Distance < EqDist * 0.75) {
-                        ForceMagnitude -= 60.0 * (EqDist * 0.75 - Distance);
+                    if (Distance < SafeEq * 0.72) {
+                        ForceMagnitude -= 35.0 * (SafeEq * 0.72 - Distance);
                     }
 
-                    const StretchRatio = Displacement / EqDist;
-                    if (StretchRatio > 0.15) {
-                        const StiffenFactor = BondType === "ionic" ? 1.5 : BondType === "metallic" ? 2.0 : 3.0;
-                        ForceMagnitude += (StretchRatio - 0.15) * EqDist * SpringStiffness * StiffenFactor;
+                    const StretchRatio = Displacement / SafeEq;
+                    if (StretchRatio > 0.12) {
+                        const StiffenFactor = BondType === "ionic" ? 1.2
+                            : BondType === "metallic" ? 3.2
+                            : 1.8;
+                        ForceMagnitude += (StretchRatio - 0.12) * SafeEq * SpringStiffness * StiffenFactor * 0.45;
                     }
+
+                    if (!isFinite(ForceMagnitude)) ForceMagnitude = 0;
                 } else {
                     const QAi = AtomA.ExtraCharge || 0;
                     const QBi = AtomB.ExtraCharge || 0;
@@ -1442,8 +1607,9 @@ globalThis.Renderer = class {
                     } else return;
                 }
 
-                if (ForceMagnitude > 400) ForceMagnitude = 400;
-                else if (ForceMagnitude < -400) ForceMagnitude = -400;
+                if (ForceMagnitude > 180) ForceMagnitude = 180;
+                else if (ForceMagnitude < -180) ForceMagnitude = -180;
+                if (!isFinite(ForceMagnitude)) ForceMagnitude = 0;
 
                 const Fx = DirX * ForceMagnitude;
                 const Fy = DirY * ForceMagnitude;
@@ -1455,11 +1621,35 @@ globalThis.Renderer = class {
                 AtomB.Force[0] -= Fx;
                 AtomB.Force[1] -= Fy;
                 AtomB.Force[2] -= Fz;
+
+                if (Data) {
+                    const RVx = AtomB.Velocity[0] - AtomA.Velocity[0];
+                    const RVy = AtomB.Velocity[1] - AtomA.Velocity[1];
+                    const RVz = AtomB.Velocity[2] - AtomA.Velocity[2];
+                    const RelAlong = RVx * DirX + RVy * DirY + RVz * DirZ;
+                    const BT = Data.BondType || "covalent";
+                    const Damp = BT === "hydrogen" ? 1.8
+                               : BT === "ionic" ? 3.5
+                               : BT === "metallic" ? (Data.Forced ? 14.0 : 11.0)
+                               : 6.5;
+                    const Age = Data.Age || 1;
+                    const AgeMul = Math.min(1.6, 0.55 + Age / 25);
+                    const DampF = RelAlong * Damp * AgeMul;
+                    const DFx = DirX * DampF;
+                    const DFy = DirY * DampF;
+                    const DFz = DirZ * DampF;
+                    AtomA.Force[0] += DFx;
+                    AtomA.Force[1] += DFy;
+                    AtomA.Force[2] += DFz;
+                    AtomB.Force[0] -= DFx;
+                    AtomB.Force[1] -= DFy;
+                    AtomB.Force[2] -= DFz;
+                }
             });
         }
 
-        this.ApplyAngleForces();
-        this.ApplyVanDerWaals();
+        if (ObjectCount < 60 || (this.BondsFrameCounter % 2) === 0) this.ApplyAngleForces();
+        if (ObjectCount < 90 || (this.BondsFrameCounter % 3) === 0) this.ApplyVanDerWaals();
 
         const Free = this.FreeEnergy || 0;
         const BaseNoise = Math.max(0, this.Temperature - 0.04) * 2.6 + Free * 3.5;
@@ -1476,12 +1666,19 @@ globalThis.Renderer = class {
             const BondDamp = 1 - Sat * 0.9;
             let Scale = (BaseNoise + KeFactor + Extra) / Math.sqrt(Mass) * BondDamp;
             if (Obj.Noble) Scale *= 0.55;
+            const MetalCoord = Obj.BondOrderSum || 0;
+            if (globalThis.Metals && globalThis.Metals.has(Obj.Key) && MetalCoord >= 2) {
+                Scale *= Math.max(0.08, 1 - Math.min(1, MetalCoord / 8) * 0.92);
+            }
 
             Obj.Force[0] += (Math.random() - 0.5) * Scale * 2;
             Obj.Force[1] += (Math.random() - 0.5) * Scale * 2;
             Obj.Force[2] += (Math.random() - 0.5) * Scale * 2;
 
-            const ShakeAmp = (this.Temperature * 0.35 + Free * 0.5 + (Obj.Excited || 0) * 0.9 + KeFactor * 0.15) * ShakeMul;
+            let ShakeAmp = (this.Temperature * 0.35 + Free * 0.5 + (Obj.Excited || 0) * 0.9 + KeFactor * 0.15) * ShakeMul;
+            if (globalThis.Metals && globalThis.Metals.has(Obj.Key) && MetalCoord >= 2) {
+                ShakeAmp *= Math.max(0.12, 1 - Math.min(1, MetalCoord / 8) * 0.88);
+            }
             if (ShakeAmp > 0.05) {
                 Obj.Shake = [
                     (Math.random() - 0.5) * ShakeAmp,
@@ -1504,9 +1701,11 @@ globalThis.Renderer = class {
         const BoundaryX = this.BoundaryX || 400;
         const BoundaryY = this.BoundaryY || 400;
         const BoundaryZ = this.BoundaryZ || 300;
-        const SpeedLimit = 25.0 + this.Temperature * 20.0 + Math.min(60, this.LastEnergyRelease * 0.6);
+        const SpeedLimit = 14.0 + this.Temperature * 12.0 + Math.min(25, this.LastEnergyRelease * 0.25);
         const SpeedLimitSq = SpeedLimit * SpeedLimit;
-        const SettleDamp = (this.SettleFrames || 0) > 0 ? 0.82 : 1.0;
+        const SettleDamp = (this.SettleFrames || 0) > 0 ? 0.78 : 1.0;
+        const Bath = Math.max(0, this.Temperature);
+        const BathTargetKe = Bath * 8.0;
 
         for (let i = 0; i < ObjectCount; i++) {
             const Obj = Objects[i];
@@ -1526,6 +1725,23 @@ globalThis.Renderer = class {
                 Nvx *= SF; Nvy *= SF; Nvz *= SF;
             }
 
+            const Mass = Obj.Atom.AtomicMass || 1;
+            if (Mass < 5 && (Obj.BondOrderSum || 0) > 0) {
+                Nvx *= 0.94;
+                Nvy *= 0.94;
+                Nvz *= 0.94;
+            }
+
+            const KeNow = 0.5 * Mass * (Nvx * Nvx + Nvy * Nvy + Nvz * Nvz);
+            if (KeNow > BathTargetKe * 2.5 + 4) {
+                const Cool = Math.sqrt(Math.max(0.15, (BathTargetKe * 2.5 + 4) / (KeNow + 0.001)));
+                Nvx *= Cool; Nvy *= Cool; Nvz *= Cool;
+            }
+
+            if (!isFinite(Nvx) || !isFinite(Nvy) || !isFinite(Nvz)) {
+                Nvx = 0; Nvy = 0; Nvz = 0;
+            }
+
             Obj.Velocity[0] = Nvx;
             Obj.Velocity[1] = Nvy;
             Obj.Velocity[2] = Nvz;
@@ -1541,11 +1757,18 @@ globalThis.Renderer = class {
             if (Pz > BoundaryZ) { Pz = BoundaryZ; Nvz *= -0.5; Obj.Velocity[2] = Nvz; }
             else if (Pz < -BoundaryZ) { Pz = -BoundaryZ; Nvz *= -0.5; Obj.Velocity[2] = Nvz; }
 
+            if (!isFinite(Px) || !isFinite(Py) || !isFinite(Pz)) {
+                Px = 0; Py = 0; Pz = 0;
+                Nvx = 0; Nvy = 0; Nvz = 0;
+                Obj.Velocity[0] = 0; Obj.Velocity[1] = 0; Obj.Velocity[2] = 0;
+            }
             Obj.Position[0] = Px;
             Obj.Position[1] = Py;
             Obj.Position[2] = Pz;
             Obj.Rotation += 0.005 * TS;
         }
+
+        this.ProjectMetallicConstraints();
 
         if ((this.SettleFrames || 0) <= 0 && globalThis.Chemistry && globalThis.Chemistry.DecayProbability) {
             for (let i = 0; i < ObjectCount; i++) {
@@ -1843,14 +2066,27 @@ globalThis.Renderer = class {
         Gl.bufferData(Gl.ARRAY_BUFFER, new Float32Array(Positions), Gl.DYNAMIC_DRAW);
         Gl.vertexAttribPointer(this.BondLocations.Position, 3, Gl.FLOAT, false, 0, 0);
         Gl.enableVertexAttribArray(this.BondLocations.Position);
+        const VertCount = Positions.length / 3;
+        const Colors = new Float32Array(VertCount * 4);
+        const R = Color[0], G = Color[1], B = Color[2], A = Color[3] !== undefined ? Color[3] : 1;
+        for (let I = 0; I < VertCount; I++) {
+            Colors[I * 4] = R;
+            Colors[I * 4 + 1] = G;
+            Colors[I * 4 + 2] = B;
+            Colors[I * 4 + 3] = A;
+        }
+        Gl.bindBuffer(Gl.ARRAY_BUFFER, this.BondColorBuffer);
+        Gl.bufferData(Gl.ARRAY_BUFFER, Colors, Gl.DYNAMIC_DRAW);
+        Gl.vertexAttribPointer(this.BondLocations.Color, 4, Gl.FLOAT, false, 0, 0);
+        Gl.enableVertexAttribArray(this.BondLocations.Color);
         Gl.uniformMatrix4fv(this.BondLocations.View, false, ViewMatrix);
         Gl.uniformMatrix4fv(this.BondLocations.Projection, false, ProjectionMatrix);
-        Gl.uniform4fv(this.BondLocations.Color, Color);
         Gl.disable(Gl.DEPTH_TEST);
         Gl.enable(Gl.BLEND);
         Gl.blendFunc(Gl.SRC_ALPHA, Gl.ONE_MINUS_SRC_ALPHA);
         Gl.lineWidth(Width);
-        Gl.drawArrays(Gl.LINES, 0, Positions.length / 3);
+        Gl.drawArrays(Gl.LINES, 0, VertCount);
+        Gl.disableVertexAttribArray(this.BondLocations.Color);
         Gl.disable(Gl.BLEND);
         Gl.enable(Gl.DEPTH_TEST);
     }
@@ -2143,6 +2379,12 @@ globalThis.Renderer = class {
         const Gl = this.Gl;
         Gl.useProgram(this.BondProgram);
         const BondPositions = [];
+        const BondColors = [];
+
+        const PushSeg = (X0, Y0, Z0, X1, Y1, Z1, R0, G0, B0, A0, R1, G1, B1, A1) => {
+            BondPositions.push(X0, Y0, Z0, X1, Y1, Z1);
+            BondColors.push(R0, G0, B0, A0, R1, G1, B1, A1);
+        };
 
         for (const [Key, Data] of this.BondData) {
             if (!this.ActiveBondPairs.has(Key)) continue;
@@ -2150,51 +2392,97 @@ globalThis.Renderer = class {
             const B = Objects[Data.IndexB];
             if (!A || !B) continue;
             const Order = Data.order || 1;
-            const Dx = B.Position[0] - A.Position[0];
-            const Dy = B.Position[1] - A.Position[1];
-            const Dz = B.Position[2] - A.Position[2];
+            const BondType = Data.BondType || "covalent";
+            const Ax = A.Position[0], Ay = A.Position[1], Az = A.Position[2];
+            const Bx = B.Position[0], By = B.Position[1], Bz = B.Position[2];
+            const Dx = Bx - Ax, Dy = By - Ay, Dz = Bz - Az;
             let Px = -Dz, Py = 0, Pz = Dx;
-            let PL = Math.sqrt(Px*Px + Py*Py + Pz*Pz);
+            let PL = Math.sqrt(Px * Px + Py * Py + Pz * Pz);
             if (PL < 0.001) {
                 Px = 0; Py = Dz; Pz = -Dy;
-                PL = Math.sqrt(Px*Px + Py*Py + Pz*Pz) + 0.001;
+                PL = Math.sqrt(Px * Px + Py * Py + Pz * Pz) + 0.001;
             }
             Px /= PL; Py /= PL; Pz /= PL;
             const Off = 3.2;
 
+            if (BondType === "hydrogen") {
+                const Segs = 7;
+                for (let S = 0; S < Segs; S++) {
+                    if (S % 2 === 1) continue;
+                    const T0 = S / Segs;
+                    const T1 = (S + 0.55) / Segs;
+                    PushSeg(
+                        Ax + Dx * T0, Ay + Dy * T0, Az + Dz * T0,
+                        Ax + Dx * T1, Ay + Dy * T1, Az + Dz * T1,
+                        0.55, 0.75, 1.0, 0.55,
+                        0.55, 0.75, 1.0, 0.55
+                    );
+                }
+                continue;
+            }
+
+            let Cr0 = 0.9, Cg0 = 0.9, Cb0 = 0.9, Ca0 = 0.85;
+            let Cr1 = 0.9, Cg1 = 0.9, Cb1 = 0.9, Ca1 = 0.85;
+
+            if (BondType === "ionic") {
+                const QA = A.ExtraCharge || A.PartialCharge || 0;
+                const QB = B.ExtraCharge || B.PartialCharge || 0;
+                const ColorFromCharge = (Q) => {
+                    const T = Math.max(-1, Math.min(1, Q));
+                    if (T >= 0) {
+                        return [0.15 + 0.15 * (1 - T), 0.35 + 0.25 * (1 - T), 0.95, 0.95];
+                    }
+                    return [0.95, 0.2 + 0.2 * (1 + T), 0.15 + 0.15 * (1 + T), 0.95];
+                };
+                const CA = ColorFromCharge(QA);
+                const CB = ColorFromCharge(QB);
+                Cr0 = CA[0]; Cg0 = CA[1]; Cb0 = CA[2]; Ca0 = CA[3];
+                Cr1 = CB[0]; Cg1 = CB[1]; Cb1 = CB[2]; Ca1 = CB[3];
+            } else if (BondType === "metallic") {
+                Cr0 = 0.55; Cg0 = 0.78; Cb0 = 1.0; Ca0 = 0.75;
+                Cr1 = 0.55; Cg1 = 0.78; Cb1 = 1.0; Ca1 = 0.75;
+            }
+
+            const EmitOrder = (Ox, Oy, Oz) => {
+                PushSeg(
+                    Ax + Ox, Ay + Oy, Az + Oz,
+                    Bx + Ox, By + Oy, Bz + Oz,
+                    Cr0, Cg0, Cb0, Ca0,
+                    Cr1, Cg1, Cb1, Ca1
+                );
+            };
+
             if (Order === 1) {
-                BondPositions.push(A.Position[0], A.Position[1], A.Position[2], B.Position[0], B.Position[1], B.Position[2]);
+                EmitOrder(0, 0, 0);
             } else if (Order === 2) {
-                BondPositions.push(
-                    A.Position[0]+Px*Off, A.Position[1]+Py*Off, A.Position[2]+Pz*Off,
-                    B.Position[0]+Px*Off, B.Position[1]+Py*Off, B.Position[2]+Pz*Off
-                );
-                BondPositions.push(
-                    A.Position[0]-Px*Off, A.Position[1]-Py*Off, A.Position[2]-Pz*Off,
-                    B.Position[0]-Px*Off, B.Position[1]-Py*Off, B.Position[2]-Pz*Off
-                );
+                EmitOrder(Px * Off, Py * Off, Pz * Off);
+                EmitOrder(-Px * Off, -Py * Off, -Pz * Off);
             } else {
-                BondPositions.push(A.Position[0], A.Position[1], A.Position[2], B.Position[0], B.Position[1], B.Position[2]);
-                BondPositions.push(
-                    A.Position[0]+Px*Off, A.Position[1]+Py*Off, A.Position[2]+Pz*Off,
-                    B.Position[0]+Px*Off, B.Position[1]+Py*Off, B.Position[2]+Pz*Off
-                );
-                BondPositions.push(
-                    A.Position[0]-Px*Off, A.Position[1]-Py*Off, A.Position[2]-Pz*Off,
-                    B.Position[0]-Px*Off, B.Position[1]-Py*Off, B.Position[2]-Pz*Off
-                );
+                EmitOrder(0, 0, 0);
+                EmitOrder(Px * Off, Py * Off, Pz * Off);
+                EmitOrder(-Px * Off, -Py * Off, -Pz * Off);
             }
         }
+
         if (BondPositions.length === 0) return;
         Gl.bindBuffer(Gl.ARRAY_BUFFER, this.BondBuffer);
         Gl.bufferData(Gl.ARRAY_BUFFER, new Float32Array(BondPositions), Gl.DYNAMIC_DRAW);
         Gl.vertexAttribPointer(this.BondLocations.Position, 3, Gl.FLOAT, false, 0, 0);
         Gl.enableVertexAttribArray(this.BondLocations.Position);
+
+        Gl.bindBuffer(Gl.ARRAY_BUFFER, this.BondColorBuffer);
+        Gl.bufferData(Gl.ARRAY_BUFFER, new Float32Array(BondColors), Gl.DYNAMIC_DRAW);
+        Gl.vertexAttribPointer(this.BondLocations.Color, 4, Gl.FLOAT, false, 0, 0);
+        Gl.enableVertexAttribArray(this.BondLocations.Color);
+
         Gl.uniformMatrix4fv(this.BondLocations.View, false, ViewMatrix);
         Gl.uniformMatrix4fv(this.BondLocations.Projection, false, ProjectionMatrix);
-        Gl.uniform4fv(this.BondLocations.Color, [0.9, 0.9, 0.9, 0.8]);
-        Gl.lineWidth(3.0);
+        Gl.enable(Gl.BLEND);
+        Gl.blendFunc(Gl.SRC_ALPHA, Gl.ONE_MINUS_SRC_ALPHA);
+        Gl.lineWidth(2.5);
         Gl.drawArrays(Gl.LINES, 0, BondPositions.length / 3);
+        Gl.disableVertexAttribArray(this.BondLocations.Color);
+        Gl.disable(Gl.BLEND);
     }
 
     DrawParticles(ViewMatrix, ProjectionMatrix) {
@@ -2257,7 +2545,16 @@ globalThis.Renderer = class {
             -Hx, Hy,-Hz,  Hx, Hy,-Hz,  Hx, Hy,-Hz,  Hx, Hy, Hz,  Hx, Hy, Hz, -Hx, Hy, Hz, -Hx, Hy, Hz, -Hx, Hy,-Hz,
             -Hx,-Hy,-Hz, -Hx, Hy,-Hz,  Hx,-Hy,-Hz,  Hx, Hy,-Hz,  Hx,-Hy, Hz,  Hx, Hy, Hz, -Hx,-Hy, Hz, -Hx, Hy, Hz
         ];
-        this.DrawLines(Edges, ViewMatrix, ProjectionMatrix, [1.0, 1.0, 1.0, 0.5], 1.5);
+        this.DrawLines(Edges, ViewMatrix, ProjectionMatrix, [1.0, 1.0, 1.0, 0.35], 1.2);
+        const AxisLenX = Hx;
+        const AxisLenY = Hy;
+        const AxisLenZ = Hz;
+        this.DrawLines([0, 0, 0, AxisLenX, 0, 0], ViewMatrix, ProjectionMatrix, [1.0, 0.25, 0.25, 0.9], 2.0);
+        this.DrawLines([0, 0, 0, 0, AxisLenY, 0], ViewMatrix, ProjectionMatrix, [0.3, 0.95, 0.35, 0.9], 2.0);
+        this.DrawLines([0, 0, 0, 0, 0, AxisLenZ], ViewMatrix, ProjectionMatrix, [0.3, 0.5, 1.0, 0.9], 2.0);
+        this.DrawLines([-AxisLenX, 0, 0, 0, 0, 0], ViewMatrix, ProjectionMatrix, [1.0, 0.25, 0.25, 0.35], 1.0);
+        this.DrawLines([0, -AxisLenY, 0, 0, 0, 0], ViewMatrix, ProjectionMatrix, [0.3, 0.95, 0.35, 0.35], 1.0);
+        this.DrawLines([0, 0, -AxisLenZ, 0, 0, 0], ViewMatrix, ProjectionMatrix, [0.3, 0.5, 1.0, 0.35], 1.0);
     }
 
     Render() {

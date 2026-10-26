@@ -1,6 +1,12 @@
 const Canvas = document.querySelector(".Canvas");
-const CanvasRenderer = new Renderer(Canvas);
-globalThis.CanvasRenderer = CanvasRenderer;
+let CanvasRenderer = null;
+globalThis.CanvasRenderer = null;
+
+function WithRenderer(Fn) {
+    if (!CanvasRenderer) return;
+    return Fn(CanvasRenderer);
+}
+
 
 const FramerateLabel = document.querySelector(".Framerate");
 const DeltaTimeLabel = document.querySelector(".DeltaTime");
@@ -12,9 +18,72 @@ const Tooltip = document.querySelector(".Tooltip");
 const ContextMenu = document.getElementById("ContextMenu");
 let ContextTarget = null;
 
-const ResizeCanvas = () => { CanvasRenderer.Resize(); };
-ResizeCanvas();
+function ClampWidget(Element) {
+    if (!Element || Element.classList.contains("WidgetHidden")) return;
+    const Rect = Element.getBoundingClientRect();
+    if (Rect.width < 4) return;
+    const Margin = 8;
+    const MaxLeft = Math.max(Margin, window.innerWidth - Rect.width - Margin);
+    const MaxTop = Math.max(Margin, window.innerHeight - Math.min(Rect.height, 48) - Margin);
+    const Left = Math.min(Math.max(Margin, Rect.left), MaxLeft);
+    const Top = Math.min(Math.max(Margin, Rect.top), MaxTop);
+    Element.style.right = "auto";
+    Element.style.bottom = "auto";
+    Element.style.left = `${Left}px`;
+    Element.style.top = `${Top}px`;
+}
+
+function ClampAllWidgets() {
+    document.querySelectorAll(".PluginWidget").forEach(ClampWidget);
+}
+
+const ResizeCanvas = () => {
+    if (CanvasRenderer) CanvasRenderer.Resize();
+    ClampAllWidgets();
+    PositionDisplayMenu();
+};
 window.addEventListener("resize", ResizeCanvas);
+window.addEventListener("orientationchange", () => setTimeout(ResizeCanvas, 120));
+
+new MutationObserver((Records) => {
+    for (const Record of Records) {
+        for (const Node of Record.addedNodes) {
+            if (Node.classList && Node.classList.contains("PluginWidget")) {
+                requestAnimationFrame(() => ClampWidget(Node));
+            }
+        }
+    }
+}).observe(document.body, { childList: true });
+
+document.addEventListener("click", (Event) => {
+    if (Event.target.closest && Event.target.closest(".PluginDockBtn")) setTimeout(ClampAllWidgets, 0);
+});
+
+async function BootRenderer() {
+    await globalThis.LoadShaders();
+    CanvasRenderer = new Renderer(Canvas);
+    globalThis.CanvasRenderer = CanvasRenderer;
+    CanvasRenderer.Temperature = 0.05;
+    CanvasRenderer.FreeEnergy = 0;
+    CanvasRenderer.SettleFrames = 240;
+    if (typeof Prefs !== "undefined") {
+        if (Prefs.ShakeIntensity != null) CanvasRenderer.ShakeIntensity = Prefs.ShakeIntensity;
+        if (Prefs.BoundX != null) CanvasRenderer.BoundaryX = Prefs.BoundX;
+        if (Prefs.BoundY != null) CanvasRenderer.BoundaryY = Prefs.BoundY;
+        if (Prefs.BoundZ != null) CanvasRenderer.BoundaryZ = Prefs.BoundZ;
+    }
+    ResizeCanvas();
+    if (globalThis.Plugin) globalThis.Plugin.Boot();
+    requestAnimationFrame(Update);
+}
+
+BootRenderer().catch((Err) => {
+    console.error(Err);
+    const Msg = document.createElement("div");
+    Msg.textContent = "Failed to start renderer: " + (Err && Err.message ? Err.message : String(Err));
+    Msg.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000;color:#fff;font:16px monospace;z-index:99999;padding:24px;text-align:center";
+    document.body.appendChild(Msg);
+});
 
 const KeyStates = {};
 const CameraVelocity = [0, 0, 0];
@@ -40,7 +109,7 @@ let ThrowVelocity = [0, 0, 0];
 let DragSamples = [];
 const DragSampleWindowMs = 60;
 
-const UiSelector = ".Area, .ContextMenu, .Tooltip, .PluginWidget, .PluginDock, button, select, input, label, textarea, canvas.WGraph";
+const UiSelector = ".Area, .ContextMenu, .Tooltip, .PluginWidget, .PluginDock, .DropdownMenu, .MobileBar, .TouchControls, button, select, input, label, textarea, canvas.WGraph";
 
 const IsTouchDevice = (typeof window !== "undefined") && (
     "ontouchstart" in window ||
@@ -49,6 +118,136 @@ const IsTouchDevice = (typeof window !== "undefined") && (
 );
 
 window.addEventListener("contextmenu", (Event) => Event.preventDefault());
+
+const MobilePanels = [document.getElementById("DashboardPanel"), document.getElementById("HierarchyPanel")];
+const MobileButtons = document.querySelectorAll(".MobileBtn");
+
+function ClosePanels() {
+    for (const Panel of MobilePanels) if (Panel) Panel.classList.remove("Open");
+    MobileButtons.forEach((Btn) => Btn.classList.remove("active"));
+    CloseDisplayMenu();
+}
+
+MobileButtons.forEach((Btn) => {
+    Btn.addEventListener("click", (Event) => {
+        Event.stopPropagation();
+        const Target = document.getElementById(Btn.dataset.target);
+        if (!Target) return;
+        const WillOpen = !Target.classList.contains("Open");
+        ClosePanels();
+        if (WillOpen) {
+            Target.classList.add("Open");
+            Btn.classList.add("active");
+        }
+    });
+});
+
+const DisplayButton = document.getElementById("DisplayDropdownButton");
+const DisplayLabel = document.getElementById("DisplayDropdownLabel");
+const DisplayMenu = document.getElementById("DisplayDropdownMenu");
+const DisplayItems = DisplayMenu ? [...DisplayMenu.querySelectorAll(".DropdownItem")] : [];
+
+if (DisplayMenu) document.body.appendChild(DisplayMenu);
+
+function PositionDisplayMenu() {
+    if (!DisplayMenu || !DisplayButton || DisplayMenu.hidden) return;
+    const Rect = DisplayButton.getBoundingClientRect();
+    const Margin = 8;
+    const SpaceBelow = window.innerHeight - Rect.bottom - Margin;
+    const SpaceAbove = Rect.top - Margin;
+    const MenuHeight = DisplayMenu.scrollHeight;
+    const OpenUp = SpaceBelow < Math.min(MenuHeight, 240) && SpaceAbove > SpaceBelow;
+    const Width = Math.min(Math.max(Rect.width, 180), window.innerWidth - Margin * 2);
+    const Left = Math.min(Math.max(Margin, Rect.left), window.innerWidth - Width - Margin);
+    DisplayMenu.style.width = `${Width}px`;
+    DisplayMenu.style.left = `${Left}px`;
+    if (OpenUp) {
+        DisplayMenu.style.top = "auto";
+        DisplayMenu.style.bottom = `${window.innerHeight - Rect.top + 6}px`;
+        DisplayMenu.style.maxHeight = `${Math.max(120, SpaceAbove - 6)}px`;
+    } else {
+        DisplayMenu.style.bottom = "auto";
+        DisplayMenu.style.top = `${Rect.bottom + 6}px`;
+        DisplayMenu.style.maxHeight = `${Math.max(120, SpaceBelow - 6)}px`;
+    }
+}
+
+function OpenDisplayMenu() {
+    if (!DisplayMenu || !DisplayButton) return;
+    DisplayMenu.hidden = false;
+    DisplayButton.setAttribute("aria-expanded", "true");
+    PositionDisplayMenu();
+}
+
+function CloseDisplayMenu() {
+    if (!DisplayMenu || !DisplayButton) return;
+    DisplayMenu.hidden = true;
+    DisplayButton.setAttribute("aria-expanded", "false");
+}
+
+function SetDisplayMode(Mode) {
+    if (CanvasRenderer) CanvasRenderer.DisplayMode = Mode;
+    for (const Item of DisplayItems) {
+        const Active = Item.dataset.mode === Mode;
+        Item.classList.toggle("active", Active);
+        Item.setAttribute("aria-selected", Active ? "true" : "false");
+        if (Active && DisplayLabel) DisplayLabel.textContent = Item.textContent.trim();
+    }
+}
+
+if (DisplayButton && DisplayMenu) {
+    DisplayButton.addEventListener("click", (Event) => {
+        Event.stopPropagation();
+        if (DisplayMenu.hidden) OpenDisplayMenu();
+        else CloseDisplayMenu();
+    });
+
+    DisplayButton.addEventListener("keydown", (Event) => {
+        if (Event.key === "ArrowDown" || Event.key === "ArrowUp") {
+            Event.preventDefault();
+            OpenDisplayMenu();
+            const Active = DisplayItems.find((Item) => Item.classList.contains("active")) || DisplayItems[0];
+            if (Active) Active.focus();
+        } else if (Event.key === "Escape") {
+            CloseDisplayMenu();
+        }
+    });
+
+    DisplayMenu.addEventListener("keydown", (Event) => {
+        const Index = DisplayItems.indexOf(document.activeElement);
+        if (Event.key === "ArrowDown") {
+            Event.preventDefault();
+            DisplayItems[(Index + 1) % DisplayItems.length].focus();
+        } else if (Event.key === "ArrowUp") {
+            Event.preventDefault();
+            DisplayItems[(Index - 1 + DisplayItems.length) % DisplayItems.length].focus();
+        } else if (Event.key === "Escape") {
+            Event.preventDefault();
+            CloseDisplayMenu();
+            DisplayButton.focus();
+        }
+    });
+
+    for (const Item of DisplayItems) {
+        Item.addEventListener("click", (Event) => {
+            Event.stopPropagation();
+            SetDisplayMode(Item.dataset.mode);
+            CloseDisplayMenu();
+            DisplayButton.focus({ preventScroll: true });
+        });
+    }
+
+    window.addEventListener("pointerdown", (Event) => {
+        if (DisplayMenu.hidden) return;
+        if (DisplayMenu.contains(Event.target) || DisplayButton.contains(Event.target)) return;
+        CloseDisplayMenu();
+    }, true);
+
+    const ScrollParent = document.getElementById("DashboardPanel");
+    if (ScrollParent) ScrollParent.addEventListener("scroll", CloseDisplayMenu, { passive: true });
+
+    SetDisplayMode("none");
+}
 
 function HideContextMenu() {
     if (ContextMenu) ContextMenu.hidden = true;
@@ -89,6 +288,7 @@ window.addEventListener("mousedown", (Event) => {
     }
 
     if (ContextMenu && !ContextMenu.hidden) HideContextMenu();
+    ClosePanels();
 
     if (Event.button === 2) {
         const MousePos = { x: Event.clientX, y: Event.clientY };
@@ -232,7 +432,9 @@ window.addEventListener("mousemove", (Event) => {
             if (HoveredObject.Excited > 0.05) Text += ` | *${HoveredObject.Excited.toFixed(1)}`;
             Tooltip.textContent = Text;
             Tooltip.style.opacity = "1";
-            Tooltip.style.left = `${MousePos.x + 14}px`;
+            const TipWidth = Tooltip.offsetWidth || 200;
+            const TipLeft = Math.min(MousePos.x + 14, window.innerWidth - TipWidth - 8);
+            Tooltip.style.left = `${Math.max(8, TipLeft)}px`;
             Tooltip.style.top = `${MousePos.y + 14}px`;
         } else if (Tooltip) {
             Tooltip.style.opacity = "0";
@@ -242,19 +444,14 @@ window.addEventListener("mousemove", (Event) => {
 
 window.addEventListener("keydown", (Event) => {
     KeyStates[Event.code] = true;
-    if (Event.code === "Escape") HideContextMenu();
+    if (Event.code === "Escape") {
+        HideContextMenu();
+        CloseDisplayMenu();
+    }
 });
 
 window.addEventListener("keyup", (Event) => {
     KeyStates[Event.code] = false;
-});
-
-document.querySelectorAll(".ModeBtn").forEach((Btn) => {
-    Btn.addEventListener("click", () => {
-        const Mode = Btn.dataset.mode;
-        CanvasRenderer.DisplayMode = Mode;
-        document.querySelectorAll(".ModeBtn").forEach((B) => B.classList.toggle("active", B === Btn));
-    });
 });
 
 if (ContextMenu) {
@@ -312,6 +509,7 @@ if (ContextMenu) {
                         CanvasRenderer.ActiveBondPairs.delete(Key);
                         CanvasRenderer.BondData.delete(Key);
                     }
+                    CanvasRenderer.BreakJointsOf(Atom);
                 }
                 break;
             }
@@ -331,12 +529,10 @@ if (ContextMenu) {
                 break;
             }
             case "delete": {
-                const Idx = Objects.indexOf(Atom);
-                if (Idx >= 0) {
-                    Objects.splice(Idx, 1);
-                    if (SelectedObject === Atom) { SelectedObject = null; CanvasRenderer.SelectedObject = null; }
-                    if (HoveredObject === Atom) { HoveredObject = null; CanvasRenderer.HoveredObject = null; }
-                }
+                CanvasRenderer.RemoveAtom(Atom);
+                if (SelectedObject === Atom) { SelectedObject = null; CanvasRenderer.SelectedObject = null; }
+                if (HoveredObject === Atom) { HoveredObject = null; CanvasRenderer.HoveredObject = null; }
+                IsInteracting = false;
                 break;
             }
         }
@@ -345,8 +541,10 @@ if (ContextMenu) {
 }
 
 window.addEventListener("wheel", (Event) => {
+    if (Event.target && Event.target.closest && Event.target.closest(".Area, .DropdownMenu, .PluginWidget, .ContextMenu")) return;
     Event.preventDefault();
     if (Event.ctrlKey) {
+        if (!CanvasRenderer) return;
         const Snap = 0.05;
         const Delta = Event.deltaY < 0 ? Snap : -Snap;
         let NextScale = Math.round((CanvasRenderer.TargetTimeScale + Delta) / Snap) * Snap;
@@ -373,9 +571,6 @@ window.addEventListener("wheel", (Event) => {
     }
 }, { passive: false });
 
-CanvasRenderer.Temperature = 0.05;
-CanvasRenderer.FreeEnergy = 0;
-CanvasRenderer.SettleFrames = 240;
 {
     const BathEl = document.getElementById("PrefBath");
     const BathVal = document.getElementById("PrefBathVal");
@@ -407,6 +602,7 @@ function GetScreenRay(ScreenX, ScreenY) {
         Forward[1] + Right[1] * NdcX * TanFov * Aspect + TrueUp[1] * NdcY * TanFov,
         Forward[2] + Right[2] * NdcX * TanFov * Aspect + TrueUp[2] * NdcY * TanFov
     ]);
+    if (!CanvasRenderer) return { Origin: [0, 0, 900], Direction: RayDir };
     return { Origin: [...CanvasRenderer.CameraPosition], Direction: RayDir };
 }
 
@@ -437,6 +633,7 @@ function PickAtom(Ray) {
     let Closest = null;
     let ClosestT = Infinity;
     for (const Obj of Objects) {
+        if (!CanvasRenderer) return null;
         const Radius = Math.max(8, (Obj.Atom.AtomicRadius ?? 100) * CanvasRenderer.RadiusScale * 0.3);
         const HitT = RaySphereIntersection(Ray.Origin, Ray.Direction, Obj.Position, Radius);
         if (HitT !== null && HitT < ClosestT) {
@@ -445,6 +642,126 @@ function PickAtom(Ray) {
         }
     }
     return Closest;
+}
+
+const TouchControls = document.getElementById("TouchControls");
+const Joystick = document.getElementById("Joystick");
+const JoystickKnob = document.getElementById("JoystickKnob");
+const TouchUpButton = document.getElementById("TouchUp");
+const TouchDownButton = document.getElementById("TouchDown");
+const JoystickInput = [0, 0];
+const JoystickSmoothed = [0, 0];
+const JoystickDeadZone = 0.12;
+let JoystickPointer = null;
+let VerticalSmoothed = 0;
+const VerticalPointers = new Map();
+
+function EnableTouchUi() {
+    if (!TouchControls) return;
+    document.body.classList.add("TouchUi");
+    TouchControls.hidden = false;
+}
+
+if (IsTouchDevice || (window.matchMedia && window.matchMedia("(pointer: coarse)").matches)) EnableTouchUi();
+
+window.addEventListener("pointerdown", (Event) => {
+    if (Event.pointerType === "touch") EnableTouchUi();
+}, { passive: true });
+
+function ResetJoystick() {
+    JoystickPointer = null;
+    JoystickInput[0] = 0;
+    JoystickInput[1] = 0;
+    if (JoystickKnob) {
+        JoystickKnob.classList.remove("Active");
+        JoystickKnob.style.transform = "translate(0px, 0px)";
+    }
+}
+
+function UpdateJoystickFromEvent(Event) {
+    const Rect = Joystick.getBoundingClientRect();
+    const Radius = Rect.width * 0.5;
+    const MaxTravel = Math.max(1, Radius - JoystickKnob.offsetWidth * 0.3);
+    let Dx = Event.clientX - (Rect.left + Radius);
+    let Dy = Event.clientY - (Rect.top + Radius);
+    const Len = Math.hypot(Dx, Dy);
+    if (Len > MaxTravel) {
+        Dx *= MaxTravel / Len;
+        Dy *= MaxTravel / Len;
+    }
+    JoystickKnob.style.transform = `translate(${Dx}px, ${Dy}px)`;
+    let Nx = Dx / MaxTravel;
+    let Ny = Dy / MaxTravel;
+    const Mag = Math.hypot(Nx, Ny);
+    if (Mag < JoystickDeadZone) {
+        JoystickInput[0] = 0;
+        JoystickInput[1] = 0;
+        return;
+    }
+    const Scale = Math.min(1, (Mag - JoystickDeadZone) / (1 - JoystickDeadZone)) / Mag;
+    JoystickInput[0] = Nx * Scale;
+    JoystickInput[1] = -Ny * Scale;
+}
+
+if (Joystick && JoystickKnob) {
+    Joystick.addEventListener("pointerdown", (Event) => {
+        if (JoystickPointer !== null) return;
+        Event.preventDefault();
+        JoystickPointer = Event.pointerId;
+        try { Joystick.setPointerCapture(Event.pointerId); } catch (Err) {}
+        JoystickKnob.classList.add("Active");
+        UpdateJoystickFromEvent(Event);
+    });
+    Joystick.addEventListener("pointermove", (Event) => {
+        if (Event.pointerId !== JoystickPointer) return;
+        Event.preventDefault();
+        UpdateJoystickFromEvent(Event);
+    });
+    const EndJoystick = (Event) => {
+        if (Event.pointerId !== JoystickPointer) return;
+        ResetJoystick();
+    };
+    Joystick.addEventListener("pointerup", EndJoystick);
+    Joystick.addEventListener("pointercancel", EndJoystick);
+    Joystick.addEventListener("lostpointercapture", EndJoystick);
+    Joystick.addEventListener("contextmenu", (Event) => Event.preventDefault());
+}
+
+function BindVerticalButton(Button, Direction) {
+    if (!Button) return;
+    Button.addEventListener("pointerdown", (Event) => {
+        Event.preventDefault();
+        VerticalPointers.set(Event.pointerId, Direction);
+        try { Button.setPointerCapture(Event.pointerId); } catch (Err) {}
+        Button.classList.add("Active");
+    });
+    const End = (Event) => {
+        if (!VerticalPointers.has(Event.pointerId)) return;
+        VerticalPointers.delete(Event.pointerId);
+        let StillHeld = false;
+        for (const D of VerticalPointers.values()) if (D === Direction) StillHeld = true;
+        if (!StillHeld) Button.classList.remove("Active");
+    };
+    Button.addEventListener("pointerup", End);
+    Button.addEventListener("pointercancel", End);
+    Button.addEventListener("lostpointercapture", End);
+    Button.addEventListener("contextmenu", (Event) => Event.preventDefault());
+}
+
+BindVerticalButton(TouchUpButton, 1);
+BindVerticalButton(TouchDownButton, -1);
+
+window.addEventListener("blur", () => {
+    ResetJoystick();
+    VerticalPointers.clear();
+    if (TouchUpButton) TouchUpButton.classList.remove("Active");
+    if (TouchDownButton) TouchDownButton.classList.remove("Active");
+});
+
+function GetVerticalInput() {
+    let Sum = 0;
+    for (const D of VerticalPointers.values()) Sum += D;
+    return Math.max(-1, Math.min(1, Sum));
 }
 
 const UpdateCamera = () => {
@@ -459,6 +776,20 @@ const UpdateCamera = () => {
     if (KeyStates["KeyA"]) { MX -= Right[0] * CameraAcceleration; MY -= Right[1] * CameraAcceleration; MZ -= Right[2] * CameraAcceleration; }
     if (KeyStates["Space"]) MY += CameraAcceleration;
     if (KeyStates["ShiftLeft"] || KeyStates["ShiftRight"]) MY -= CameraAcceleration;
+
+    JoystickSmoothed[0] += (JoystickInput[0] - JoystickSmoothed[0]) * 0.25;
+    JoystickSmoothed[1] += (JoystickInput[1] - JoystickSmoothed[1]) * 0.25;
+    VerticalSmoothed += (GetVerticalInput() - VerticalSmoothed) * 0.3;
+    if (Math.abs(JoystickSmoothed[0]) < 0.001) JoystickSmoothed[0] = 0;
+    if (Math.abs(JoystickSmoothed[1]) < 0.001) JoystickSmoothed[1] = 0;
+    if (Math.abs(VerticalSmoothed) < 0.001) VerticalSmoothed = 0;
+
+    const Jx = JoystickSmoothed[0] * CameraAcceleration;
+    const Jy = JoystickSmoothed[1] * CameraAcceleration;
+    MX += Forward[0] * Jy + Right[0] * Jx;
+    MY += Forward[1] * Jy + Right[1] * Jx;
+    MZ += Forward[2] * Jy + Right[2] * Jx;
+    MY += VerticalSmoothed * CameraAcceleration;
 
     CameraVelocity[0] = (CameraVelocity[0] + MX) * CameraDamping;
     CameraVelocity[1] = (CameraVelocity[1] + MY) * CameraDamping;
@@ -480,8 +811,16 @@ const TouchState = {
     PinchStartDist: 0,
     MoveThresholdExceeded: false,
     StartX: 0,
-    StartY: 0
+    StartY: 0,
+    LongPressTimer: null
 };
+
+function ClearLongPress() {
+    if (TouchState.LongPressTimer !== null) {
+        clearTimeout(TouchState.LongPressTimer);
+        TouchState.LongPressTimer = null;
+    }
+}
 
 function StartDragOnAtom(AtomObj, ScreenX, ScreenY) {
     SelectedObject = AtomObj;
@@ -511,6 +850,8 @@ function StartDragOnAtom(AtomObj, ScreenX, ScreenY) {
 
 if (IsTouchDevice) {
     Canvas.addEventListener("touchstart", (Event) => {
+        HideContextMenu();
+        ClosePanels();
         if (Event.touches.length === 1) {
             Event.preventDefault();
             const T = Event.touches[0];
@@ -519,9 +860,19 @@ if (IsTouchDevice) {
             TouchState.MoveThresholdExceeded = false;
             TouchState.StartX = T.clientX;
             TouchState.StartY = T.clientY;
+            ClearLongPress();
             if (AtomHit) {
                 TouchState.Mode = "drag";
                 StartDragOnAtom(AtomHit, T.clientX, T.clientY);
+                TouchState.LongPressTimer = setTimeout(() => {
+                    TouchState.LongPressTimer = null;
+                    if (TouchState.Mode === "drag" && !TouchState.MoveThresholdExceeded) {
+                        IsInteracting = false;
+                        DragSamples = [];
+                        TouchState.Mode = null;
+                        ShowContextMenu(AtomHit, TouchState.StartX, TouchState.StartY);
+                    }
+                }, 550);
             } else {
                 TouchState.Mode = "orbit";
                 TouchState.LastX = T.clientX;
@@ -531,6 +882,11 @@ if (IsTouchDevice) {
             }
         } else if (Event.touches.length === 2) {
             Event.preventDefault();
+            ClearLongPress();
+            if (TouchState.Mode === "drag") {
+                IsInteracting = false;
+                DragSamples = [];
+            }
             TouchState.Mode = "pinch";
             const T1 = Event.touches[0], T2 = Event.touches[1];
             TouchState.PinchStartDist = Math.hypot(T2.clientX - T1.clientX, T2.clientY - T1.clientY);
@@ -571,6 +927,12 @@ if (IsTouchDevice) {
         } else if (TouchState.Mode === "drag" && Event.touches.length === 1 && SelectedObject) {
             Event.preventDefault();
             const T = Event.touches[0];
+            if (!TouchState.MoveThresholdExceeded) {
+                const Moved = Math.hypot(T.clientX - TouchState.StartX, T.clientY - TouchState.StartY);
+                if (Moved < 8) return;
+                TouchState.MoveThresholdExceeded = true;
+                ClearLongPress();
+            }
             const Ray = GetScreenRay(T.clientX, T.clientY);
             const Intersection = RayPlaneIntersection(Ray.Origin, Ray.Direction, DragPlanePoint, DragPlaneNormal);
             if (Intersection) {
@@ -598,6 +960,7 @@ if (IsTouchDevice) {
 
     Canvas.addEventListener("touchend", (Event) => {
         Event.preventDefault();
+        ClearLongPress();
         if (TouchState.Mode === "drag" && SelectedObject) {
             const ThrowVel = ComputeThrowFromSamples();
             const Mag = Math.hypot(ThrowVel[0], ThrowVel[1], ThrowVel[2]);
@@ -611,6 +974,7 @@ if (IsTouchDevice) {
     }, { passive: false });
 
     Canvas.addEventListener("touchcancel", () => {
+        ClearLongPress();
         TouchState.Mode = null;
         IsInteracting = false;
         DragSamples = [];
@@ -878,6 +1242,7 @@ if (HierarchyTree) {
         }
     });
     HierarchyTree.addEventListener("pointerup", () => { HierarchyPointerDown = false; });
+    HierarchyTree.addEventListener("pointercancel", () => { HierarchyPointerDown = false; });
     HierarchyTree.addEventListener("pointerleave", () => { HierarchyPointerDown = false; });
     HierarchyTree.addEventListener("dblclick", (E) => {
         const AtomRow = E.target.closest(".HierAtom");
@@ -936,6 +1301,7 @@ function SpawnAtoms() {
     const Key = AtomSelect.value;
     const Count = Math.max(1, Math.min(20, Number(SpawnCountInput?.value) || 1));
     const Speed = Prefs.SpawnSpeed;
+    if (!CanvasRenderer) return;
     const Cam = CanvasRenderer.CameraPosition;
     const Fwd = GetCameraForward();
     const Now = performance.now();
@@ -983,7 +1349,7 @@ function WirePref(Id, Key, Format = (V) => V.toFixed(1)) {
         const V = Number(El.value);
         Prefs[Key] = V;
         if (Val) Val.textContent = Format(V);
-        if (Key === "ShakeIntensity") CanvasRenderer.ShakeIntensity = V;
+        if (Key === "ShakeIntensity" && CanvasRenderer) CanvasRenderer.ShakeIntensity = V;
     });
 }
 WirePref("PrefExcite", "ExciteAmount");
@@ -998,7 +1364,7 @@ function WireBound(Id, Axis) {
     El.addEventListener("input", () => {
         const V = Number(El.value);
         Prefs["Bound" + Axis] = V;
-        CanvasRenderer["Boundary" + Axis] = V;
+        if (CanvasRenderer) CanvasRenderer["Boundary" + Axis] = V;
         if (Val) Val.textContent = String(Math.round(V));
         if (BoundsSizeLabel) {
             BoundsSizeLabel.textContent = `${Math.round(CanvasRenderer.BoundaryX)}/${Math.round(CanvasRenderer.BoundaryY)}/${Math.round(CanvasRenderer.BoundaryZ)}`;
@@ -1013,6 +1379,7 @@ const PrefBathEl = document.getElementById("PrefBath");
 if (PrefBathEl) {
     PrefBathEl.addEventListener("input", () => {
         const V = Number(PrefBathEl.value);
+        if (!CanvasRenderer) return;
         CanvasRenderer.Temperature = V;
         const Val = document.getElementById("PrefBathVal");
         if (Val) Val.textContent = V.toFixed(2);
@@ -1024,22 +1391,22 @@ const PrefFreeEl = document.getElementById("PrefFreeEnergy");
 if (PrefFreeEl) {
     PrefFreeEl.addEventListener("input", () => {
         const V = Number(PrefFreeEl.value);
+        if (!CanvasRenderer) return;
         CanvasRenderer.FreeEnergy = V;
         const Val = document.getElementById("PrefFreeEnergyVal");
         if (Val) Val.textContent = V.toFixed(1);
     });
 }
 
-CanvasRenderer.ShakeIntensity = Prefs.ShakeIntensity;
-CanvasRenderer.BoundaryX = Prefs.BoundX;
-CanvasRenderer.BoundaryY = Prefs.BoundY;
-CanvasRenderer.BoundaryZ = Prefs.BoundZ;
-
 let LastFrameTime = performance.now();
 let FrameCounter = 0;
 let FpsTimer = 0;
 
 const Update = () => {
+    if (!CanvasRenderer) {
+        requestAnimationFrame(Update);
+        return;
+    }
     const Now = performance.now();
     const DeltaTime = Now - LastFrameTime;
     LastFrameTime = Now;
@@ -1069,6 +1436,8 @@ const Update = () => {
         FpsTimer = 0;
     }
 
+    CanvasRenderer.DraggedObject = (IsInteracting && SelectedObject) ? SelectedObject : null;
+
     UpdateHierarchy();
     UpdateCamera();
     CanvasRenderer.Render();
@@ -1076,6 +1445,3 @@ const Update = () => {
     if (globalThis.Plugin) globalThis.Plugin.Tick(DeltaTime);
     requestAnimationFrame(Update);
 };
-
-requestAnimationFrame(() => { if (globalThis.Plugin) globalThis.Plugin.Boot(); });
-requestAnimationFrame(Update);

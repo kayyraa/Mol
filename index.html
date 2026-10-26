@@ -17,11 +17,16 @@
         <script type="module" src="Scripts/Plugins/MoleculeSketcher.js"></script>
         <script type="module" src="Scripts/Global.d.js"></script>
 
-        <title>Fent</title>
+        <title>Mol</title>
     </head>
     <body>
-        <div class="Area Dashboard">
-            <small><img class="Favicon" src="Images/Favicon.svg">Fent</small><hr>
+        <div class="MobileBar" id="MobileBar">
+            <button type="button" class="MobileBtn" data-target="DashboardPanel">Stats</button>
+            <span class="MobileTitle"><img class="MobileFavicon" src="Images/Favicon.svg" alt="">Mol</span>
+            <button type="button" class="MobileBtn" data-target="HierarchyPanel">Atoms</button>
+        </div>
+        <div class="Area Dashboard" id="DashboardPanel">
+            <small><img class="Favicon" src="Images/Favicon.svg">Mol</small><hr>
             <div><span>Framerate</span><span class="Framerate">000/s</span></div>
             <div><span>Delta Time</span><span class="DeltaTime">0.000ms</span></div>
             <div><span>Timescale</span><span class="TimeScale">0.50x</span></div>
@@ -36,14 +41,21 @@
             </div>
             <hr>
             <small>Display</small>
-            <div class="DisplayModes">
-                <button data-mode="none" class="ModeBtn active">None</button>
-                <button data-mode="charge" class="ModeBtn">Charge</button>
-                <button data-mode="dipole" class="ModeBtn">Dipole</button>
-                <button data-mode="field" class="ModeBtn">Field</button>
-                <button data-mode="force" class="ModeBtn">Force</button>
-                <button data-mode="energy" class="ModeBtn">Energy</button>
-                <button data-mode="radiation" class="ModeBtn">Radiation</button>
+            <div class="Dropdown" id="DisplayDropdown">
+                <button type="button" class="DropdownButton" id="DisplayDropdownButton" aria-haspopup="listbox" aria-expanded="false" aria-controls="DisplayDropdownMenu">
+                    <span class="DropdownLabel" id="DisplayDropdownLabel">None</span>
+                    <span class="DropdownChevron"></span>
+                </button>
+                <div class="DropdownMenu" id="DisplayDropdownMenu" role="listbox" hidden>
+                    <button type="button" role="option" class="DropdownItem active" data-mode="none"><span class="DropdownCheck"></span><span>None</span></button>
+                    <button type="button" role="option" class="DropdownItem" data-mode="charge"><span class="DropdownCheck"></span><span>Charge</span></button>
+                    <button type="button" role="option" class="DropdownItem" data-mode="dipole"><span class="DropdownCheck"></span><span>Dipole</span></button>
+                    <button type="button" role="option" class="DropdownItem" data-mode="field"><span class="DropdownCheck"></span><span>Field</span></button>
+                    <button type="button" role="option" class="DropdownItem" data-mode="force"><span class="DropdownCheck"></span><span>Force</span></button>
+                    <button type="button" role="option" class="DropdownItem" data-mode="energy"><span class="DropdownCheck"></span><span>Energy</span></button>
+                    <button type="button" role="option" class="DropdownItem" data-mode="radiation"><span class="DropdownCheck"></span><span>Radiation</span></button>
+                    <button type="button" role="option" class="DropdownItem" data-mode="quantum"><span class="DropdownCheck"></span><span>Quantum</span></button>
+                </div>
             </div>
         </div>
         <div class="Area Hierarchy" id="HierarchyPanel">
@@ -93,6 +105,15 @@
             <button data-action="decay">Force Decay</button>
             <button data-action="focus">Focus Camera</button>
             <button data-action="delete" class="Danger">Delete Atom</button>
+        </div>
+        <div class="TouchControls" id="TouchControls" hidden>
+            <div class="Joystick" id="Joystick">
+                <div class="JoystickKnob" id="JoystickKnob"></div>
+            </div>
+            <div class="VerticalButtons">
+                <button type="button" class="VerticalButton" id="TouchUp" aria-label="Move up"><span class="VerticalArrow Up"></span><span>Up</span></button>
+                <button type="button" class="VerticalButton" id="TouchDown" aria-label="Move down"><span class="VerticalArrow Down"></span><span>Down</span></button>
+            </div>
         </div>
         <canvas class="Canvas"></canvas>
     </body>
