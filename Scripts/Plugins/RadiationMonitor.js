@@ -12,8 +12,9 @@
         visible:  { Label: "vis", Color: "#ffe066" }
     };
 
-    const WindowMs = 15000;
     const SampleIntervalMs = 80;
+    const MinWindowMs = 3000;
+    const MaxWindowMs = 120000;
 
     function OpenWidget(Api) {
         const State = {
@@ -22,7 +23,11 @@
             Decays: 0,
             SessionStart: performance.now(),
             Recent: [],
-            Current: {}
+            Current: {},
+            WindowMs: 15000,
+            DraggingAxis: false,
+            DragStartX: 0,
+            DragStartWindow: 15000
         };
 
         for (const T of Types) State.Current[T] = 0;
@@ -102,8 +107,33 @@
                 Canvas.className = "WGraph";
                 Canvas.width = 640;
                 Canvas.height = 260;
+                Canvas.style.cursor = "ew-resize";
+                Canvas.title = "Drag horizontally to change time window";
                 GraphBody.appendChild(Canvas);
                 const Ctx = Canvas.getContext("2d");
+
+                Canvas.addEventListener("pointerdown", (Event) => {
+                    State.DraggingAxis = true;
+                    State.DragStartX = Event.clientX;
+                    State.DragStartWindow = State.WindowMs;
+                    try { Canvas.setPointerCapture(Event.pointerId); } catch (Err) {}
+                    Event.preventDefault();
+                });
+                Canvas.addEventListener("pointermove", (Event) => {
+                    if (!State.DraggingAxis) return;
+                    const Dx = Event.clientX - State.DragStartX;
+                    // drag right = longer window, left = shorter
+                    const Scale = Math.exp(Dx * 0.004);
+                    State.WindowMs = Math.max(MinWindowMs, Math.min(MaxWindowMs, State.DragStartWindow * Scale));
+                });
+                const EndDrag = () => { State.DraggingAxis = false; };
+                Canvas.addEventListener("pointerup", EndDrag);
+                Canvas.addEventListener("pointercancel", EndDrag);
+                Canvas.addEventListener("wheel", (Event) => {
+                    Event.preventDefault();
+                    const F = Event.deltaY > 0 ? 1.12 : 0.9;
+                    State.WindowMs = Math.max(MinWindowMs, Math.min(MaxWindowMs, State.WindowMs * F));
+                }, { passive: false });
 
                 const ClearRow = document.createElement("div");
                 ClearRow.className = "WActions";
@@ -173,7 +203,7 @@
                     MaxVal = Math.ceil(MaxVal * 1.2);
 
                     const Now = performance.now();
-                    const Start = Now - WindowMs;
+                    const Start = Now - State.WindowMs;
                     const PadTop = 10;
                     const PadBottom = 4;
                     const PlotH = H - PadTop - PadBottom;
@@ -185,7 +215,7 @@
                         Ctx.beginPath();
                         let Started = false;
                         for (const Sample of State.History) {
-                            const X = ((Sample._t - Start) / WindowMs) * W;
+                            const X = ((Sample._t - Start) / State.WindowMs) * W;
                             if (X < 0) continue;
                             const V = Sample[T] || 0;
                             const Y = PadTop + PlotH - (V / MaxVal) * PlotH;
@@ -201,7 +231,10 @@
                     Ctx.fillText(String(MaxVal), 4, 12);
                     Ctx.fillText("0", 4, H - 4);
                     Ctx.textAlign = "right";
-                    Ctx.fillText("-15s", W - 4, H - 4);
+                    Ctx.fillText("-" + (State.WindowMs / 1000).toFixed(0) + "s", W - 4, H - 4);
+                    Ctx.textAlign = "center";
+                    Ctx.fillStyle = "rgba(255,255,255,0.25)";
+                    Ctx.fillText("drag to zoom time", W / 2, H - 4);
                     Ctx.textAlign = "left";
                 }
 
@@ -230,7 +263,7 @@
                         const Sample = { _t: Now };
                         for (const T of Types) Sample[T] = Counts[T] || 0;
                         State.History.push(Sample);
-                        while (State.History.length > 0 && Now - State.History[0]._t > WindowMs) {
+                        while (State.History.length > 0 && Now - State.History[0]._t > State.WindowMs) {
                             State.History.shift();
                         }
                     }

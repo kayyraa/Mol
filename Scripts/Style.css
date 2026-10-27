@@ -42,6 +42,15 @@ body {
     box-sizing: border-box;
 }
 
+.LabelCanvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+}
+
 .Canvas {
     position: absolute;
     inset: 0;
@@ -276,7 +285,9 @@ body {
 .AtomSelect,
 .WSelect,
 .SpawnMenuRow select,
-select.UiSelect {
+select.UiSelect,
+.SettingsSelect,
+.SettingsRow select {
     flex: 1;
     min-width: 0;
     background-color: rgba(255, 255, 255, 0.06);
@@ -298,13 +309,13 @@ select.UiSelect {
     transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.AtomSelect:hover, .WSelect:hover, .SpawnMenuRow select:hover, select.UiSelect:hover,
-.AtomSelect:focus, .WSelect:focus, .SpawnMenuRow select:focus, select.UiSelect:focus {
+.AtomSelect:hover, .WSelect:hover, .SpawnMenuRow select:hover, select.UiSelect:hover, .SettingsSelect:hover, .SettingsRow select:hover,
+.AtomSelect:focus, .WSelect:focus, .SpawnMenuRow select:focus, select.UiSelect:focus, .SettingsSelect:focus, .SettingsRow select:focus {
     border-color: rgba(255, 255, 255, 0.24);
     background-color: rgba(255, 255, 255, 0.09);
 }
 
-.AtomSelect option, .WSelect option, .SpawnMenuRow select option, select.UiSelect option {
+.AtomSelect option, .WSelect option, .SpawnMenuRow select option, select.UiSelect option, .SettingsSelect option, .SettingsRow select option {
     background: #1c1c1e;
     color: var(--text);
 }
@@ -1129,7 +1140,7 @@ select.UiSelect {
     right: 0;
     bottom: calc(12px + var(--safe-bottom));
     height: 0;
-    /* Below panels, mobile bar, plugins, menus — only above the canvas */
+    /* Below panels, mobile bar, plugins, menus ΓÇö only above the canvas */
     z-index: 12;
     pointer-events: none;
 }
@@ -1651,4 +1662,195 @@ input[type="number"]::-webkit-inner-spin-button {
     right: 2.5px;
     top: 2.75px;
     box-shadow: 0 3.5px 0 currentColor;
+}
+
+
+
+.DashHeader {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+}
+.DashHeader small {
+    display: inline-flex !important;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    margin: 0 !important;
+    margin-left: 0 !important;
+    position: relative;
+    text-transform: none;
+    letter-spacing: 0.06em;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.DashHeader small > img,
+.DashHeader .Favicon {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    height: 18px !important;
+    width: 18px !important;
+    min-width: 18px;
+    min-height: 18px;
+    aspect-ratio: 1 / 1;
+    object-fit: contain;
+    display: block;
+    flex-shrink: 0;
+}
+.SettingsBtn {
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.SettingsBtn:hover,
+.SettingsBtn[aria-expanded="true"] {
+    background: var(--accent-soft);
+    border-color: var(--accent-border);
+}
+
+.SettingsPanel {
+    position: fixed;
+    z-index: 90;
+    width: min(320px, calc(100vw - 16px));
+    max-height: min(70vh, 520px);
+    overflow-y: auto;
+    padding: 12px 14px 14px;
+    background: rgba(14, 14, 16, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.SettingsPanel[hidden] { display: none !important; }
+.SettingsTitle {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+}
+.SettingsSection {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.SettingsSectionTitle {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 2px;
+}
+.SettingsRow {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.75);
+}
+.SettingsRow input[type="range"] {
+    flex: 1;
+    min-width: 0;
+}
+.SettingsRow select,
+.SettingsSelect {
+    flex: 1;
+    min-width: 0;
+}
+.SettingsCheck {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.8);
+    cursor: pointer;
+}
+.SettingsActions {
+    display: flex;
+    gap: 8px;
+}
+.SettingsActions button {
+    flex: 1;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text);
+    padding: 8px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.SettingsPrimary {
+    background: var(--accent-soft) !important;
+    border-color: var(--accent-border) !important;
+    font-weight: 600;
+}
+.SettingsHint {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* Themes */
+body.Theme-midnight {
+    --panel-bg: rgba(8, 10, 24, 0.72);
+    --panel-border: rgba(120, 140, 255, 0.22);
+    --text: #e8ecff;
+    --accent-soft: rgba(90, 120, 255, 0.28);
+    --accent-border: rgba(120, 150, 255, 0.55);
+}
+body.Theme-slate {
+    --panel-bg: rgba(20, 24, 28, 0.78);
+    --panel-border: rgba(180, 200, 210, 0.18);
+    --text: #edf2f4;
+    --accent-soft: rgba(0, 180, 160, 0.28);
+    --accent-border: rgba(0, 210, 180, 0.5);
+}
+body.Theme-light {
+    --panel-bg: rgba(245, 247, 250, 0.9);
+    --panel-border: rgba(0, 0, 0, 0.12);
+    --text: #1a1d21;
+    --text-secondary: #4a5560;
+    --text-tertiary: #6b7780;
+    --accent-soft: rgba(10, 132, 255, 0.18);
+    --accent-border: rgba(10, 132, 255, 0.55);
+    --panel-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+}
+body.Theme-light .Canvas { filter: none; }
+body.Theme-light .SettingsPanel,
+body.Theme-light .SpawnMenu,
+body.Theme-light .PluginDockMenu {
+    background: rgba(250, 252, 255, 0.96);
+    color: #1a1d21;
+}
+
+
+.HierGroupLabel sub {
+    font-size: 0.72em;
+    vertical-align: sub;
+}
+.HierGroupLabel sup {
+    font-size: 0.72em;
+    vertical-align: super;
 }

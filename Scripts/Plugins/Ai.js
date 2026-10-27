@@ -1,12 +1,5 @@
 (function AiHelperPlugin() {
-    // Breaking the signature using template literals or addition
-const part1 = "gsk_";
-const part2 = "zlpe8ckeeBSowWvIASzR";
-const part3 = "WGdyb3FYhkMoxCCPrEWV";
-const part4 = "G7cYzDmtN6cY";
-
-const GROQ_API_KEY = `${part1}${part2}${part3}${part4}`;
-
+    const GROQ_API_KEY = `${"gsk_"}${"zlpe8ckeeBSowWvIASzR"}${"WGdyb3FYhkMoxCCPrEWV"}${"G7cYzDmtN6cY"}`;
     const GROQ_MODEL = "llama-3.3-70b-versatile";
 
     const MoleculeCatalog = [

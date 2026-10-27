@@ -7,29 +7,37 @@ uniform vec3 UColor;
 uniform vec3 ULightPosition;
 uniform vec3 UCameraPosition;
 uniform sampler2D UTexture;
+uniform float UOutlineMode;
+uniform vec4 UOutlineColor;
 out vec4 FragColor;
 const float PI = 3.14159265359;
+
 void main() {
-    vec3 LocalNorm = normalize(VLocalPosition);
-    float U = 0.5 - atan(LocalNorm.z, LocalNorm.x) / (2.0 * PI);
-    float V = 0.5 - asin(clamp(LocalNorm.y, -1.0, 1.0)) / PI;
-    vec4 TexColor = texture(UTexture, vec2(U, V));
+    // Solid outline / particle pass
+    if (UOutlineMode > 0.5) {
+        FragColor = UOutlineColor;
+        return;
+    }
+
     vec3 Normal = normalize(VNormal);
-    vec3 LightDirection = normalize(ULightPosition - VWorldPosition);
+    vec3 Local = normalize(VLocalPosition);
     vec3 ViewDirection = normalize(UCameraPosition - VWorldPosition);
-    vec3 HalfVector = normalize(LightDirection + ViewDirection);
-    float NdotL = max(dot(Normal, LightDirection), 0.0);
-    float Diffuse;
-    if (NdotL > 0.8) Diffuse = 1.0;
-    else if (NdotL > 0.4) Diffuse = 0.6;
-    else if (NdotL > 0.15) Diffuse = 0.35;
-    else Diffuse = 0.15;
-    float NdotH = max(dot(Normal, HalfVector), 0.0);
-    float SpecularStrength = pow(NdotH, 32.0);
-    float Specular = step(0.5, SpecularStrength) * 0.6;
-    float Edge = dot(ViewDirection, Normal);
-    float Silhouette = step(0.25, Edge);
-    vec3 BaseColor = mix(UColor, TexColor.rgb, TexColor.a);
-    vec3 FinalColor = (BaseColor * Diffuse + vec3(1.0) * Specular) * Silhouette;
+    vec3 LightDirection = normalize(ULightPosition - VWorldPosition);
+
+    float U = 0.5 - atan(Local.z, Local.x) / (2.0 * PI);
+    float V = 0.5 - asin(clamp(Local.y, -1.0, 1.0)) / PI;
+    vec4 TexColor = texture(UTexture, vec2(U, V));
+
+    float Wrap = 0.4;
+    float NdotL = max(dot(Normal, LightDirection) + Wrap, 0.0) / (1.0 + Wrap);
+    float Diffuse = 0.58 + 0.42 * NdotL;
+    float Spec = pow(max(dot(Normal, normalize(LightDirection + ViewDirection)), 0.0), 56.0) * 0.14;
+    float Facing = max(dot(Normal, ViewDirection), 0.0);
+    float Rim = pow(1.0 - Facing, 2.2) * 0.14;
+
+    vec3 BaseColor = mix(UColor, TexColor.rgb, TexColor.a * 0.92);
+    vec3 FinalColor = BaseColor * Diffuse + vec3(Spec);
+    FinalColor *= (1.0 - Rim);
+
     FragColor = vec4(FinalColor, 1.0);
 }

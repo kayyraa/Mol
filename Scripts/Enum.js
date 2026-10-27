@@ -181,9 +181,9 @@ function BuildIcosphere(Subdivisions) {
 }
 
 Enum.Mesh = {
-    Sphere: BuildIcosphere(2),
-    SphereLow: BuildIcosphere(1),
-    SphereTiny: BuildIcosphere(0)
+    Sphere: BuildIcosphere(3),
+    SphereLow: BuildIcosphere(2),
+    SphereTiny: BuildIcosphere(1)
 };
 
 class SpatialGrid {
@@ -318,18 +318,21 @@ function CreateTextTexture(Gl, Text) {
     Canvas.height = 256;
     const Ctx = Canvas.getContext("2d");
     Ctx.clearRect(0, 0, Canvas.width, Canvas.height);
-    Ctx.font = "bold 96px 'Cascadia Mono', monospace, sans-serif";
+    Ctx.font = "bold 96px 'Cascadia Mono', 'Segoe UI', system-ui, sans-serif";
     Ctx.textAlign = "center";
     Ctx.textBaseline = "middle";
-    Ctx.fillStyle = "#ffffff";
-    Ctx.strokeStyle = "#000000";
+    Ctx.lineJoin = "round";
+    Ctx.strokeStyle = "rgba(0, 0, 0, 0.72)";
     Ctx.lineWidth = 12;
+    // Two copies across the strip so spherical REPEAT hides the longitude seam
     for (const X of [Canvas.width * 0.25, Canvas.width * 0.75]) {
-        Ctx.strokeText(Text, X, Canvas.height * 0.5);
-        Ctx.fillText(Text, X, Canvas.height * 0.5);
+        Ctx.strokeText(Text, X, Canvas.height * 0.52);
+        Ctx.fillStyle = "#ffffff";
+        Ctx.fillText(Text, X, Canvas.height * 0.52);
     }
     const Texture = Gl.createTexture();
     Gl.bindTexture(Gl.TEXTURE_2D, Texture);
+    Gl.pixelStorei(Gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     Gl.texImage2D(Gl.TEXTURE_2D, 0, Gl.RGBA, Gl.RGBA, Gl.UNSIGNED_BYTE, Canvas);
     Gl.generateMipmap(Gl.TEXTURE_2D);
     Gl.texParameteri(Gl.TEXTURE_2D, Gl.TEXTURE_MIN_FILTER, Gl.LINEAR_MIPMAP_LINEAR);
@@ -350,16 +353,15 @@ globalThis.ShaderSources = {
 
 globalThis.LoadShaders = async function () {
     const Fallbacks = {
-        Vertex: '#version 300 es\nin vec3 APosition;\nin vec3 ANormal;\nuniform mat4 UModel;\nuniform mat4 UView;\nuniform mat4 UProjection;\nout vec3 VNormal;\nout vec3 VWorldPosition;\nout vec3 VLocalPosition;\nvoid main() {\n    VLocalPosition = APosition;\n    vec4 WorldPosition = UModel * vec4(APosition, 1.0);\n    VWorldPosition = WorldPosition.xyz;\n    VNormal = mat3(UModel) * ANormal;\n    gl_Position = UProjection * UView * WorldPosition;\n}\n',
-        Fragment: '#version 300 es\nprecision mediump float;\nin vec3 VNormal;\nin vec3 VWorldPosition;\nin vec3 VLocalPosition;\nuniform vec3 UColor;\nuniform vec3 ULightPosition;\nuniform vec3 UCameraPosition;\nuniform sampler2D UTexture;\nout vec4 FragColor;\nconst float PI = 3.14159265359;\nvoid main() {\n    vec3 LocalNorm = normalize(VLocalPosition);\n    float U = 0.5 - atan(LocalNorm.z, LocalNorm.x) / (2.0 * PI);\n    float V = 0.5 - asin(clamp(LocalNorm.y, -1.0, 1.0)) / PI;\n    vec4 TexColor = texture(UTexture, vec2(U, V));\n    vec3 Normal = normalize(VNormal);\n    vec3 LightDirection = normalize(ULightPosition - VWorldPosition);\n    vec3 ViewDirection = normalize(UCameraPosition - VWorldPosition);\n    vec3 HalfVector = normalize(LightDirection + ViewDirection);\n    float NdotL = max(dot(Normal, LightDirection), 0.0);\n    float Diffuse;\n    if (NdotL > 0.8) Diffuse = 1.0;\n    else if (NdotL > 0.4) Diffuse = 0.6;\n    else if (NdotL > 0.15) Diffuse = 0.35;\n    else Diffuse = 0.15;\n    float NdotH = max(dot(Normal, HalfVector), 0.0);\n    float SpecularStrength = pow(NdotH, 32.0);\n    float Specular = step(0.5, SpecularStrength) * 0.6;\n    float Edge = dot(ViewDirection, Normal);\n    float Silhouette = step(0.25, Edge);\n    vec3 BaseColor = mix(UColor, TexColor.rgb, TexColor.a);\n    vec3 FinalColor = (BaseColor * Diffuse + vec3(1.0) * Specular) * Silhouette;\n    FragColor = vec4(FinalColor, 1.0);\n}\n',
+        Vertex: '#version 300 es\nin vec3 APosition;\nin vec3 ANormal;\nuniform mat4 UModel;\nuniform mat4 UView;\nuniform mat4 UProjection;\nuniform float UOutlineScale;\nout vec3 VNormal;\nout vec3 VWorldPosition;\nout vec3 VLocalPosition;\nvoid main() {\n    float S = max(UOutlineScale, 0.001);\n    vec3 Pos = APosition * S;\n    VLocalPosition = APosition;\n    vec4 WorldPosition = UModel * vec4(Pos, 1.0);\n    VWorldPosition = WorldPosition.xyz;\n    VNormal = mat3(UModel) * ANormal;\n    gl_Position = UProjection * UView * WorldPosition;\n}\n',
+        Fragment: '#version 300 es\nprecision mediump float;\nin vec3 VNormal;\nin vec3 VWorldPosition;\nin vec3 VLocalPosition;\nuniform vec3 UColor;\nuniform vec3 ULightPosition;\nuniform vec3 UCameraPosition;\nuniform sampler2D UTexture;\nuniform float UOutlineMode;\nuniform vec4 UOutlineColor;\nout vec4 FragColor;\nconst float PI = 3.14159265359;\n\nvoid main() {\n    // Solid outline / particle pass\n    if (UOutlineMode > 0.5) {\n        FragColor = UOutlineColor;\n        return;\n    }\n\n    vec3 Normal = normalize(VNormal);\n    vec3 Local = normalize(VLocalPosition);\n    vec3 ViewDirection = normalize(UCameraPosition - VWorldPosition);\n    vec3 LightDirection = normalize(ULightPosition - VWorldPosition);\n\n    float U = 0.5 - atan(Local.z, Local.x) / (2.0 * PI);\n    float V = 0.5 - asin(clamp(Local.y, -1.0, 1.0)) / PI;\n    vec4 TexColor = texture(UTexture, vec2(U, V));\n\n    float Wrap = 0.4;\n    float NdotL = max(dot(Normal, LightDirection) + Wrap, 0.0) / (1.0 + Wrap);\n    float Diffuse = 0.58 + 0.42 * NdotL;\n    float Spec = pow(max(dot(Normal, normalize(LightDirection + ViewDirection)), 0.0), 56.0) * 0.14;\n    float Facing = max(dot(Normal, ViewDirection), 0.0);\n    float Rim = pow(1.0 - Facing, 2.2) * 0.14;\n\n    vec3 BaseColor = mix(UColor, TexColor.rgb, TexColor.a * 0.92);\n    vec3 FinalColor = BaseColor * Diffuse + vec3(Spec);\n    FinalColor *= (1.0 - Rim);\n\n    FragColor = vec4(FinalColor, 1.0);\n}\n',
         OutlineVertex: '#version 300 es\nin vec3 APosition;\nuniform mat4 UModel;\nuniform mat4 UView;\nuniform mat4 UProjection;\nuniform float UOutlineScale;\nvoid main() {\n    vec4 ScaledPosition = vec4(APosition * UOutlineScale, 1.0);\n    gl_Position = UProjection * UView * UModel * ScaledPosition;\n}\n',
         OutlineFragment: '#version 300 es\nprecision mediump float;\nuniform vec4 UColor;\nout vec4 FragColor;\nvoid main() { FragColor = UColor; }\n'
     };
     const Files = [
         ["Vertex", "Scripts/Shaders/Vertex.glsl"],
         ["Fragment", "Scripts/Shaders/Fragment.glsl"],
-        ["OutlineVertex", "Scripts/Shaders/OutlineVertex.glsl"],
-        ["OutlineFragment", "Scripts/Shaders/OutlineFragment.glsl"]
+
     ];
     await Promise.all(Files.map(async ([Key, Url]) => {
         try {
@@ -388,6 +390,115 @@ in vec4 VColor;
 out vec4 FragColor;
 void main() { FragColor = VColor; }
 `;
+
+ShaderSources.MetaballVertex = `#version 300 es
+in vec2 APosition;
+out vec2 VUv;
+void main() {
+    VUv = APosition * 0.5 + 0.5;
+    gl_Position = vec4(APosition, 0.0, 1.0);
+}
+`;
+
+ShaderSources.MetaballFragment = `#version 300 es
+precision mediump float;
+in vec2 VUv;
+uniform vec3 UCameraPosition;
+uniform vec3 UCameraForward;
+uniform vec3 UCameraRight;
+uniform vec3 UCameraUp;
+uniform float UTanHalfFov;
+uniform float UAspect;
+uniform int UCount;
+uniform vec4 UAtoms[48];
+uniform vec4 UAtomColor[48];
+uniform float UThreshold;
+out vec4 FragColor;
+
+float FieldAt(vec3 P) {
+    float F = 0.0;
+    for (int i = 0; i < 48; i++) {
+        if (i >= UCount) break;
+        vec3 C = UAtoms[i].xyz;
+        float R = max(1.0, UAtoms[i].w);
+        vec3 D = P - C;
+        float D2 = dot(D, D);
+        F += (R * R) / (D2 + 1.0);
+    }
+    return F;
+}
+
+vec3 FieldColor(vec3 P) {
+    vec3 Acc = vec3(0.0);
+    float WSum = 0.0;
+    for (int i = 0; i < 48; i++) {
+        if (i >= UCount) break;
+        vec3 C = UAtoms[i].xyz;
+        float R = max(1.0, UAtoms[i].w);
+        vec3 D = P - C;
+        float D2 = dot(D, D);
+        float W = (R * R) / (D2 + 1.0);
+        Acc += UAtomColor[i].rgb * W;
+        WSum += W;
+    }
+    if (WSum < 1e-5) return vec3(0.5);
+    return Acc / WSum;
+}
+
+vec3 FieldNormal(vec3 P) {
+    float E = 0.9;
+    float Fx = FieldAt(P + vec3(E,0,0)) - FieldAt(P - vec3(E,0,0));
+    float Fy = FieldAt(P + vec3(0,E,0)) - FieldAt(P - vec3(0,E,0));
+    float Fz = FieldAt(P + vec3(0,0,E)) - FieldAt(P - vec3(0,0,E));
+    return normalize(vec3(Fx, Fy, Fz));
+}
+
+void main() {
+    if (UCount <= 0) discard;
+    vec2 Nd = VUv * 2.0 - 1.0;
+    vec3 RayDir = normalize(
+        UCameraForward
+        + UCameraRight * (Nd.x * UTanHalfFov * UAspect)
+        + UCameraUp * (Nd.y * UTanHalfFov)
+    );
+    vec3 Origin = UCameraPosition;
+    float TNear = 40.0;
+    float TFar = 3500.0;
+    float T = TNear;
+    float PrevF = FieldAt(Origin + RayDir * T);
+    bool Hit = false;
+    vec3 HitP = Origin;
+    // Sphere-trace / binary search ray march against isosurface
+    for (int Step = 0; Step < 64; Step++) {
+        T += 14.0;
+        if (T > TFar) break;
+        float F = FieldAt(Origin + RayDir * T);
+        if (PrevF < UThreshold && F >= UThreshold) {
+            float A = T - 14.0, B = T;
+            for (int J = 0; J < 6; J++) {
+                float M = (A + B) * 0.5;
+                if (FieldAt(Origin + RayDir * M) >= UThreshold) B = M; else A = M;
+            }
+            HitP = Origin + RayDir * B;
+            Hit = true;
+            break;
+        }
+        PrevF = F;
+    }
+    if (!Hit) discard;
+    vec3 N = FieldNormal(HitP);
+    // Flip normal toward camera
+    if (dot(N, -RayDir) < 0.0) N = -N;
+    vec3 Col = FieldColor(HitP);
+    float NdL = 0.55 + 0.45 * max(dot(N, normalize(vec3(0.35, 0.85, 0.4))), 0.0);
+    float Fres = pow(1.0 - max(dot(N, -RayDir), 0.0), 2.0) * 0.25;
+    vec3 Final = Col * NdL + vec3(Fres);
+    // Soft alpha from field thickness
+    float Alpha = 0.72 + 0.2 * clamp((FieldAt(HitP) - UThreshold) * 0.35, 0.0, 1.0);
+    FragColor = vec4(Final, Alpha);
+}
+`;
+
 };
 
 globalThis.CompileShader = function(Gl, Source, Type) {
@@ -528,29 +639,43 @@ globalThis.Renderer = class {
         if (!this.Gl) throw new Error("WebGL2 is not supported in this environment");
 
         this.Program = CreateProgram(this.Gl, ShaderSources.Vertex, ShaderSources.Fragment);
-        this.OutlineProgram = CreateProgram(this.Gl, ShaderSources.OutlineVertex, ShaderSources.OutlineFragment);
         this.BondProgram = CreateProgram(this.Gl, ShaderSources.BondVertex, ShaderSources.BondFragment);
+        this.MetaballProgram = CreateProgram(this.Gl, ShaderSources.MetaballVertex, ShaderSources.MetaballFragment);
+        this.MetaballLocations = {
+            Position: this.Gl.getAttribLocation(this.MetaballProgram, "APosition"),
+            CameraPosition: this.Gl.getUniformLocation(this.MetaballProgram, "UCameraPosition"),
+            CameraForward: this.Gl.getUniformLocation(this.MetaballProgram, "UCameraForward"),
+            CameraRight: this.Gl.getUniformLocation(this.MetaballProgram, "UCameraRight"),
+            CameraUp: this.Gl.getUniformLocation(this.MetaballProgram, "UCameraUp"),
+            TanHalfFov: this.Gl.getUniformLocation(this.MetaballProgram, "UTanHalfFov"),
+            Aspect: this.Gl.getUniformLocation(this.MetaballProgram, "UAspect"),
+            Count: this.Gl.getUniformLocation(this.MetaballProgram, "UCount"),
+            Threshold: this.Gl.getUniformLocation(this.MetaballProgram, "UThreshold")
+        };
+        // Fullscreen triangle
+        this.MetaballVbo = this.Gl.createBuffer();
+        this.Gl.bindBuffer(this.Gl.ARRAY_BUFFER, this.MetaballVbo);
+        this.Gl.bufferData(this.Gl.ARRAY_BUFFER, new Float32Array([
+            -1, -1,  3, -1,  -1, 3
+        ]), this.Gl.STATIC_DRAW);
 
         this.AttributeLocations = {
             Position: this.Gl.getAttribLocation(this.Program, "APosition"),
             Normal: this.Gl.getAttribLocation(this.Program, "ANormal")
         };
-        this.OutlineLocations = {
-            Position: this.Gl.getAttribLocation(this.OutlineProgram, "APosition"),
-            Model: this.Gl.getUniformLocation(this.OutlineProgram, "UModel"),
-            View: this.Gl.getUniformLocation(this.OutlineProgram, "UView"),
-            Projection: this.Gl.getUniformLocation(this.OutlineProgram, "UProjection"),
-            OutlineScale: this.Gl.getUniformLocation(this.OutlineProgram, "UOutlineScale"),
-            Color: this.Gl.getUniformLocation(this.OutlineProgram, "UColor")
-        };
         this.UniformLocations = {
+            Position: this.Gl.getAttribLocation(this.Program, "APosition"),
+            Normal: this.Gl.getAttribLocation(this.Program, "ANormal"),
             Model: this.Gl.getUniformLocation(this.Program, "UModel"),
             View: this.Gl.getUniformLocation(this.Program, "UView"),
             Projection: this.Gl.getUniformLocation(this.Program, "UProjection"),
             Color: this.Gl.getUniformLocation(this.Program, "UColor"),
             LightPosition: this.Gl.getUniformLocation(this.Program, "ULightPosition"),
             CameraPosition: this.Gl.getUniformLocation(this.Program, "UCameraPosition"),
-            Texture: this.Gl.getUniformLocation(this.Program, "UTexture")
+            Texture: this.Gl.getUniformLocation(this.Program, "UTexture"),
+            OutlineScale: this.Gl.getUniformLocation(this.Program, "UOutlineScale"),
+            OutlineMode: this.Gl.getUniformLocation(this.Program, "UOutlineMode"),
+            OutlineColor: this.Gl.getUniformLocation(this.Program, "UOutlineColor")
         };
         this.BondLocations = {
             Position: this.Gl.getAttribLocation(this.BondProgram, "APosition"),
@@ -573,6 +698,11 @@ globalThis.Renderer = class {
         this.BoundaryY = 300;
         this.BoundaryZ = 300;
         this.DisplayMode = "none";
+        this.LabelCanvas = document.createElement("canvas");
+        this.LabelCanvas.className = "LabelCanvas";
+        this.LabelCanvas.setAttribute("aria-hidden", "true");
+        document.body.appendChild(this.LabelCanvas);
+        this.LabelCtx = this.LabelCanvas.getContext("2d");
         this.Textures = new Map();
         this.ActiveBondPairs = new Set();
         this.PreviousBondPairs = new Set();
@@ -591,8 +721,8 @@ globalThis.Renderer = class {
         this.IonicCoordination = 6;
         this.MetalCoordination = 12;
         this.IonicChargeThreshold = 0.7;
-        this.MetallicConstraintIterations = 6;
-        this.MetallicConstraintStrength = 0.72;
+        this.MetallicConstraintIterations = 14;
+        this.MetallicConstraintStrength = 0.92;
 
         this.Grid = new SpatialGrid(300);
         this.AngleNeighborMap = new Map();
@@ -658,6 +788,14 @@ globalThis.Renderer = class {
         this.Canvas.width = window.innerWidth;
         this.Canvas.height = window.innerHeight;
         this.Gl.viewport(0, 0, this.Canvas.width, this.Canvas.height);
+        if (this.LabelCanvas) {
+            const Dpr = Math.min(2, window.devicePixelRatio || 1);
+            this.LabelCanvas.width = Math.floor(window.innerWidth * Dpr);
+            this.LabelCanvas.height = Math.floor(window.innerHeight * Dpr);
+            this.LabelCanvas.style.width = window.innerWidth + "px";
+            this.LabelCanvas.style.height = window.innerHeight + "px";
+            this.LabelDpr = Dpr;
+        }
     }
 
     GetMoleculeAtoms(Atom) {
@@ -1204,16 +1342,25 @@ globalThis.Renderer = class {
                 B.Position[1] -= Uy * CorrB;
                 B.Position[2] -= Uz * CorrB;
 
+                // Damp relative velocity along the bond (negative lambda kills stretch bounce)
                 const RelV = (B.Velocity[0] - A.Velocity[0]) * Ux
                     + (B.Velocity[1] - A.Velocity[1]) * Uy
                     + (B.Velocity[2] - A.Velocity[2]) * Uz;
-                const VCorr = RelV * 0.35 / InvMassSum;
+                const VDamp = 0.72;
+                const VCorr = -RelV * VDamp / InvMassSum;
                 A.Velocity[0] += Ux * VCorr * InvMassA;
                 A.Velocity[1] += Uy * VCorr * InvMassA;
                 A.Velocity[2] += Uz * VCorr * InvMassA;
                 B.Velocity[0] -= Ux * VCorr * InvMassB;
                 B.Velocity[1] -= Uy * VCorr * InvMassB;
                 B.Velocity[2] -= Uz * VCorr * InvMassB;
+
+                // Kill residual tangential jitter on forced metal links
+                if (Data.Forced || BondType === "metallic") {
+                    const TangDamp = 0.12;
+                    A.Velocity[0] *= (1 - TangDamp); A.Velocity[1] *= (1 - TangDamp); A.Velocity[2] *= (1 - TangDamp);
+                    B.Velocity[0] *= (1 - TangDamp); B.Velocity[1] *= (1 - TangDamp); B.Velocity[2] *= (1 - TangDamp);
+                }
             }
         }
     }
@@ -1751,7 +1898,10 @@ globalThis.Renderer = class {
             if (Obj.Noble) Scale *= 0.55;
             const MetalCoord = Obj.BondOrderSum || 0;
             if (globalThis.Metals && globalThis.Metals.has(Obj.Key) && MetalCoord >= 2) {
-                Scale *= Math.max(0.08, 1 - Math.min(1, MetalCoord / 8) * 0.92);
+                // Highly coordinated lattice sites stay nearly silent
+                Scale *= Math.max(0.01, 1 - Math.min(1, MetalCoord / 6) * 0.99);
+                if (MetalCoord >= 4) Scale *= 0.15;
+                if ((this.SettleFrames || 0) > 0) Scale *= 0.05;
             }
 
             Obj.Force[0] += (Math.random() - 0.5) * Scale * 2;
@@ -1760,7 +1910,9 @@ globalThis.Renderer = class {
 
             let ShakeAmp = (this.Temperature * 0.35 + Free * 0.5 + (Obj.Excited || 0) * 0.9 + KeFactor * 0.15) * ShakeMul;
             if (globalThis.Metals && globalThis.Metals.has(Obj.Key) && MetalCoord >= 2) {
-                ShakeAmp *= Math.max(0.12, 1 - Math.min(1, MetalCoord / 8) * 0.88);
+                ShakeAmp *= Math.max(0.02, 1 - Math.min(1, MetalCoord / 6) * 0.98);
+                if (MetalCoord >= 4) ShakeAmp *= 0.1;
+                if ((this.SettleFrames || 0) > 0 || this.Temperature < 0.2) ShakeAmp = 0;
             }
             if (ShakeAmp > 0.05) {
                 Obj.Shake = [
@@ -1816,8 +1968,14 @@ globalThis.Renderer = class {
             }
             if (globalThis.Metals && globalThis.Metals.has(Obj.Key) && (Obj.BondOrderSum || 0) >= 2) {
                 const Fric = Math.max(0, Math.min(1, this.Friction ?? 0.45));
-                const MetalDamp = 0.97 - Fric * 0.04;
+                const Coord = Obj.BondOrderSum || 0;
+                let MetalDamp = 0.94 - Fric * 0.06;
+                if (Coord >= 4) MetalDamp *= 0.92;
+                if ((this.SettleFrames || 0) > 0) MetalDamp *= 0.85;
+                if (this.Temperature < 0.25) MetalDamp *= 0.96;
                 Nvx *= MetalDamp; Nvy *= MetalDamp; Nvz *= MetalDamp;
+                // Snap near-zero residual so lattices stop micro-jittering
+                if (Math.hypot(Nvx, Nvy, Nvz) < 0.08) { Nvx = 0; Nvy = 0; Nvz = 0; }
             }
 
             const KeNow = 0.5 * Mass * (Nvx * Nvx + Nvy * Nvy + Nvz * Nvz);
@@ -1952,6 +2110,15 @@ globalThis.Renderer = class {
         if (this.SettleFrames > 0) this.SettleFrames--;
     }
 
+
+    SetOutlineMode(On, Color = null, Scale = 1.0) {
+        const Gl = this.Gl;
+        const U = this.UniformLocations;
+        Gl.uniform1f(U.OutlineMode, On ? 1.0 : 0.0);
+        Gl.uniform1f(U.OutlineScale, Scale);
+        if (Color) Gl.uniform4fv(U.OutlineColor, Color);
+    }
+
     SetColorUniform(R, G, B) {
         if (R === this.LastSetColorR && G === this.LastSetColorG && B === this.LastSetColorB) return;
         this.Gl.uniform3f(this.UniformLocations.Color, R, G, B);
@@ -2011,7 +2178,15 @@ globalThis.Renderer = class {
             }
         }
 
-        if (this.DisplayMode === "charge" || this.DisplayMode === "field") {
+        if (this.DisplayMode === "charge") {
+            // Electronegativity colormap: low EN (delta+) blue -> cyan -> yellow -> red high EN (delta-)
+            const En = Object.Atom.Electronegativity;
+            if (En != null && isFinite(En)) {
+                const T = Math.max(0, Math.min(1, (En - 0.7) / (4.0 - 0.7)));
+                const C = this.ElectronegativityColor(T);
+                Cr = C[0]; Cg = C[1]; Cb = C[2];
+            }
+        } else if (this.DisplayMode === "field") {
             const Q = Object.PartialCharge || 0;
             if (Math.abs(Q) > 0.02) {
                 const T = Math.min(1, Math.abs(Q) * 2.2);
@@ -2059,9 +2234,8 @@ globalThis.Renderer = class {
 
     DrawOutline(Object, ViewMatrix, ProjectionMatrix, Color, Scale = 1.15) {
         const Gl = this.Gl;
-        Gl.useProgram(this.OutlineProgram);
-        this.LastProgram = "outline";
-        this.LastSetColorR = -1;
+        Gl.useProgram(this.Program);
+        this.LastProgram = "main";
         const SphereScale = Object.BaseScale;
         const Sx = Object.Shake?.[0] || 0;
         const Sy = Object.Shake?.[1] || 0;
@@ -2071,48 +2245,53 @@ globalThis.Renderer = class {
             Object.Rotation, SphereScale
         );
         Gl.bindBuffer(Gl.ARRAY_BUFFER, this.PositionBuffer);
-        Gl.vertexAttribPointer(this.OutlineLocations.Position, 3, Gl.FLOAT, false, 0, 0);
-        Gl.enableVertexAttribArray(this.OutlineLocations.Position);
+        Gl.vertexAttribPointer(this.AttributeLocations.Position, 3, Gl.FLOAT, false, 0, 0);
+        Gl.enableVertexAttribArray(this.AttributeLocations.Position);
+        Gl.bindBuffer(Gl.ARRAY_BUFFER, this.NormalBuffer);
+        Gl.vertexAttribPointer(this.AttributeLocations.Normal, 3, Gl.FLOAT, false, 0, 0);
+        Gl.enableVertexAttribArray(this.AttributeLocations.Normal);
         Gl.bindBuffer(Gl.ELEMENT_ARRAY_BUFFER, this.IndexBuffer);
-        Gl.uniformMatrix4fv(this.OutlineLocations.Model, false, ModelMatrix);
-        Gl.uniformMatrix4fv(this.OutlineLocations.View, false, ViewMatrix);
-        Gl.uniformMatrix4fv(this.OutlineLocations.Projection, false, ProjectionMatrix);
-        Gl.uniform1f(this.OutlineLocations.OutlineScale, Scale);
-        Gl.uniform4fv(this.OutlineLocations.Color, Color);
+        Gl.uniformMatrix4fv(this.UniformLocations.Model, false, ModelMatrix);
+        Gl.uniformMatrix4fv(this.UniformLocations.View, false, ViewMatrix);
+        Gl.uniformMatrix4fv(this.UniformLocations.Projection, false, ProjectionMatrix);
+        this.SetOutlineMode(true, Color, Scale);
         Gl.enable(Gl.CULL_FACE);
         Gl.cullFace(Gl.FRONT);
         Gl.drawElements(Gl.TRIANGLES, this.IndexCount, Gl.UNSIGNED_SHORT, 0);
         Gl.disable(Gl.CULL_FACE);
+        this.SetOutlineMode(false, null, 1.0);
     }
 
     DrawMoleculeOutline(Atoms, ViewMatrix, ProjectionMatrix, Color) {
         const Gl = this.Gl;
-        Gl.useProgram(this.OutlineProgram);
-        this.LastProgram = "outline";
-        this.LastSetColorR = -1;
+        Gl.useProgram(this.Program);
+        this.LastProgram = "main";
         Gl.bindBuffer(Gl.ARRAY_BUFFER, this.PositionBuffer);
-        Gl.vertexAttribPointer(this.OutlineLocations.Position, 3, Gl.FLOAT, false, 0, 0);
-        Gl.enableVertexAttribArray(this.OutlineLocations.Position);
+        Gl.vertexAttribPointer(this.AttributeLocations.Position, 3, Gl.FLOAT, false, 0, 0);
+        Gl.enableVertexAttribArray(this.AttributeLocations.Position);
+        Gl.bindBuffer(Gl.ARRAY_BUFFER, this.NormalBuffer);
+        Gl.vertexAttribPointer(this.AttributeLocations.Normal, 3, Gl.FLOAT, false, 0, 0);
+        Gl.enableVertexAttribArray(this.AttributeLocations.Normal);
         Gl.bindBuffer(Gl.ELEMENT_ARRAY_BUFFER, this.IndexBuffer);
-        Gl.uniformMatrix4fv(this.OutlineLocations.View, false, ViewMatrix);
-        Gl.uniformMatrix4fv(this.OutlineLocations.Projection, false, ProjectionMatrix);
-        Gl.uniform4fv(this.OutlineLocations.Color, Color);
-        Gl.uniform1f(this.OutlineLocations.OutlineScale, 1.22);
+        Gl.uniformMatrix4fv(this.UniformLocations.View, false, ViewMatrix);
+        Gl.uniformMatrix4fv(this.UniformLocations.Projection, false, ProjectionMatrix);
+        this.SetOutlineMode(true, Color, 1.22);
         Gl.enable(Gl.CULL_FACE);
         Gl.cullFace(Gl.FRONT);
         for (const Obj of Atoms) {
+            if (!Obj) continue;
             const SphereScale = Obj.BaseScale;
             const Sx = Obj.Shake?.[0] || 0;
             const Sy = Obj.Shake?.[1] || 0;
             const Sz = Obj.Shake?.[2] || 0;
             const ModelMatrix = this.WriteModelMatrix(
-                Obj.Position[0] + Sx, Obj.Position[1] + Sy, Obj.Position[2] + Sz,
-                Obj.Rotation, SphereScale
+                Obj.Position[0] + Sx, Obj.Position[1] + Sy, Obj.Position[2] + Sz, Obj.Rotation, SphereScale
             );
-            Gl.uniformMatrix4fv(this.OutlineLocations.Model, false, ModelMatrix);
+            Gl.uniformMatrix4fv(this.UniformLocations.Model, false, ModelMatrix);
             Gl.drawElements(Gl.TRIANGLES, this.IndexCount, Gl.UNSIGNED_SHORT, 0);
         }
         Gl.disable(Gl.CULL_FACE);
+        this.SetOutlineMode(false, null, 1.0);
     }
 
     ComputePartialCharges() {
@@ -2266,23 +2445,7 @@ globalThis.Renderer = class {
         this.ComputePartialCharges();
 
         if (this.DisplayMode === "charge") {
-            const Pos = [], Neg = [], Neutral = [];
-            for (const Obj of Objects) {
-                const Q = Obj.PartialCharge || 0;
-                const En = Obj.Atom.Electronegativity ?? 2.2;
-                const RP = Obj.Atom.AtomicRadius ?? 100;
-                const BaseR = Math.max(10, RP * this.RadiusScale * 0.3);
-                const EnRadius = BaseR * (1.15 + (En / 4.0) * 0.9);
-                if (Math.abs(Q) < 0.03) this.PushSphereShell(Neutral, Obj.Position, EnRadius, 12);
-                else {
-                    const CR = BaseR * (1.25 + Math.min(1.8, Math.abs(Q) * 2.8));
-                    this.PushSphereShell(Q > 0 ? Pos : Neg, Obj.Position, CR, 14);
-                    this.PushSphereShell(Q > 0 ? Pos : Neg, Obj.Position, EnRadius, 10);
-                }
-            }
-            if (Pos.length) this.DrawLines(Pos, ViewMatrix, ProjectionMatrix, [1.0, 0.3, 0.2, 0.75], 1.5);
-            if (Neg.length) this.DrawLines(Neg, ViewMatrix, ProjectionMatrix, [0.25, 0.45, 1.0, 0.75], 1.5);
-            if (Neutral.length) this.DrawLines(Neutral, ViewMatrix, ProjectionMatrix, [0.55, 0.55, 0.55, 0.35], 1.0);
+            // Screen-space electronegativity metaballs drawn in DrawChargeMetaballs
         }
 
         if (this.DisplayMode === "dipole") {
@@ -2624,14 +2787,18 @@ globalThis.Renderer = class {
         const SphereParticles = this.Particles.filter((P) => !WaveTypes.has(P.Type));
         if (!SphereParticles.length) return;
         const Gl = this.Gl;
-        Gl.useProgram(this.OutlineProgram);
+        Gl.useProgram(this.Program);
+        this.LastProgram = "main";
         Gl.bindBuffer(Gl.ARRAY_BUFFER, this.ParticlePositionBuffer);
-        Gl.vertexAttribPointer(this.OutlineLocations.Position, 3, Gl.FLOAT, false, 0, 0);
-        Gl.enableVertexAttribArray(this.OutlineLocations.Position);
+        Gl.vertexAttribPointer(this.AttributeLocations.Position, 3, Gl.FLOAT, false, 0, 0);
+        Gl.enableVertexAttribArray(this.AttributeLocations.Position);
+        Gl.bindBuffer(Gl.ARRAY_BUFFER, this.ParticleNormalBuffer);
+        Gl.vertexAttribPointer(this.AttributeLocations.Normal, 3, Gl.FLOAT, false, 0, 0);
+        Gl.enableVertexAttribArray(this.AttributeLocations.Normal);
         Gl.bindBuffer(Gl.ELEMENT_ARRAY_BUFFER, this.ParticleIndexBuffer);
-        Gl.uniformMatrix4fv(this.OutlineLocations.View, false, ViewMatrix);
-        Gl.uniformMatrix4fv(this.OutlineLocations.Projection, false, ProjectionMatrix);
-        Gl.uniform1f(this.OutlineLocations.OutlineScale, 1.0);
+        Gl.uniformMatrix4fv(this.UniformLocations.View, false, ViewMatrix);
+        Gl.uniformMatrix4fv(this.UniformLocations.Projection, false, ProjectionMatrix);
+        this.SetOutlineMode(true, [1, 1, 1, 1], 1.0);
         Gl.disable(Gl.DEPTH_TEST);
         Gl.enable(Gl.BLEND);
         Gl.blendFunc(Gl.SRC_ALPHA, Gl.ONE);
@@ -2659,14 +2826,15 @@ globalThis.Renderer = class {
             Model[14] = P.Z + DZ;
             Model[15] = 1;
 
-            Gl.uniformMatrix4fv(this.OutlineLocations.Model, false, Model);
+            Gl.uniformMatrix4fv(this.UniformLocations.Model, false, Model);
             const G = Prof.glow || Prof.color;
             const A = Math.min(1, 0.35 + T * 0.65);
-            Gl.uniform4f(this.OutlineLocations.Color, G[0], G[1], G[2], A);
+            Gl.uniform4f(this.UniformLocations.OutlineColor, G[0], G[1], G[2], A);
             Gl.drawElements(Gl.TRIANGLES, IC, Gl.UNSIGNED_SHORT, 0);
         }
         Gl.disable(Gl.BLEND);
         Gl.enable(Gl.DEPTH_TEST);
+        this.SetOutlineMode(false, null, 1.0);
     }
 
     DrawBoundaries(ViewMatrix, ProjectionMatrix) {
@@ -2690,6 +2858,192 @@ globalThis.Renderer = class {
         this.DrawLines([0, 0, -AxisLenZ, 0, 0, 0], ViewMatrix, ProjectionMatrix, [0.3, 0.5, 1.0, 0.35], 1.0);
     }
 
+
+    ProjectWorldToScreen(X, Y, Z, ViewMatrix, ProjectionMatrix) {
+        const MVP = MultiplyMatrices(ProjectionMatrix, ViewMatrix);
+        // column-major multiply point
+        const W0 = MVP[0]*X + MVP[4]*Y + MVP[8]*Z + MVP[12];
+        const W1 = MVP[1]*X + MVP[5]*Y + MVP[9]*Z + MVP[13];
+        const W2 = MVP[2]*X + MVP[6]*Y + MVP[10]*Z + MVP[14];
+        const W3 = MVP[3]*X + MVP[7]*Y + MVP[11]*Z + MVP[15];
+        if (Math.abs(W3) < 1e-6) return null;
+        const NdX = W0 / W3;
+        const NdY = W1 / W3;
+        const NdZ = W2 / W3;
+        if (NdZ < -1 || NdZ > 1) return null;
+        const Sw = this.Canvas.width;
+        const Sh = this.Canvas.height;
+        return {
+            X: (NdX * 0.5 + 0.5) * Sw,
+            Y: (1 - (NdY * 0.5 + 0.5)) * Sh,
+            Z: NdZ
+        };
+    }
+
+
+    ElectronegativityColor(T) {
+        // T 0..1 : blue -> cyan -> green -> yellow -> orange -> red
+        const Stops = [
+            [0.15, 0.35, 1.00],
+            [0.15, 0.85, 0.95],
+            [0.25, 0.95, 0.35],
+            [0.95, 0.95, 0.20],
+            [1.00, 0.55, 0.12],
+            [1.00, 0.22, 0.18]
+        ];
+        const N = Stops.length - 1;
+        const X = Math.max(0, Math.min(1, T)) * N;
+        const I = Math.min(N - 1, Math.floor(X));
+        const F = X - I;
+        const A = Stops[I], B = Stops[I + 1];
+        return [
+            A[0] + (B[0] - A[0]) * F,
+            A[1] + (B[1] - A[1]) * F,
+            A[2] + (B[2] - A[2]) * F
+        ];
+    }
+
+    DrawChargeMetaballs(ViewMatrix, ProjectionMatrix) {
+        if (this.DisplayMode !== "charge" || !this.MetaballProgram) return;
+        this.ComputePartialCharges();
+        const Gl = this.Gl;
+        const MaxAtoms = 48;
+        const AtomData = [];
+        const ColorData = [];
+        for (let i = 0; i < Objects.length && AtomData.length / 4 < MaxAtoms; i++) {
+            const Obj = Objects[i];
+            if (!Obj) continue;
+            const En = Obj.Atom.Electronegativity;
+            const T = (En != null && isFinite(En))
+                ? Math.max(0, Math.min(1, (En - 0.7) / 3.3))
+                : 0.5;
+            const Col = this.ElectronegativityColor(T);
+            const R = Math.max(18, (Obj.EffRadius || 20) * 1.85);
+            AtomData.push(Obj.Position[0], Obj.Position[1], Obj.Position[2], R);
+            ColorData.push(Col[0], Col[1], Col[2], 1);
+        }
+        const Count = (AtomData.length / 4) | 0;
+        if (Count === 0) return;
+
+        // Camera basis from LookAt
+        const Eye = this.CameraPosition;
+        const Target = this.CameraTarget;
+        const Forward = Normalize3(Subtract3(Target, Eye));
+        const Right = Normalize3(Cross3(Forward, [0, 1, 0]));
+        const Up = Normalize3(Cross3(Right, Forward));
+        // if degenerate up
+        let UpUse = Up, RightUse = Right;
+        if (Math.hypot(Up[0], Up[1], Up[2]) < 0.1) {
+            RightUse = Normalize3(Cross3(Forward, [1, 0, 0]));
+            UpUse = Normalize3(Cross3(RightUse, Forward));
+        }
+        const Aspect = this.Canvas.width / Math.max(1, this.Canvas.height);
+        const TanHalf = Math.tan(Math.PI / 8); // matches Perspective(PI/4)
+
+        Gl.enable(Gl.BLEND);
+        Gl.blendFunc(Gl.SRC_ALPHA, Gl.ONE_MINUS_SRC_ALPHA);
+        Gl.depthMask(false);
+        // Raymarch writes depth optionally - keep transparent overlay without fighting spheres much
+        Gl.disable(Gl.DEPTH_TEST);
+
+        Gl.useProgram(this.MetaballProgram);
+        Gl.bindBuffer(Gl.ARRAY_BUFFER, this.MetaballVbo);
+        Gl.enableVertexAttribArray(this.MetaballLocations.Position);
+        Gl.vertexAttribPointer(this.MetaballLocations.Position, 2, Gl.FLOAT, false, 0, 0);
+
+        Gl.uniform3fv(this.MetaballLocations.CameraPosition, Eye);
+        Gl.uniform3fv(this.MetaballLocations.CameraForward, Forward);
+        Gl.uniform3fv(this.MetaballLocations.CameraRight, RightUse);
+        Gl.uniform3fv(this.MetaballLocations.CameraUp, UpUse);
+        Gl.uniform1f(this.MetaballLocations.TanHalfFov, TanHalf);
+        Gl.uniform1f(this.MetaballLocations.Aspect, Aspect);
+        Gl.uniform1i(this.MetaballLocations.Count, Count);
+        Gl.uniform1f(this.MetaballLocations.Threshold, 1.15);
+
+        // Upload atom arrays
+        for (let i = 0; i < Count; i++) {
+            const Loc = Gl.getUniformLocation(this.MetaballProgram, `UAtoms[${i}]`);
+            if (Loc) Gl.uniform4f(Loc, AtomData[i*4], AtomData[i*4+1], AtomData[i*4+2], AtomData[i*4+3]);
+            const CLoc = Gl.getUniformLocation(this.MetaballProgram, `UAtomColor[${i}]`);
+            if (CLoc) Gl.uniform4f(CLoc, ColorData[i*4], ColorData[i*4+1], ColorData[i*4+2], ColorData[i*4+3]);
+        }
+
+        Gl.drawArrays(Gl.TRIANGLES, 0, 3);
+
+        Gl.disableVertexAttribArray(this.MetaballLocations.Position);
+        Gl.enable(Gl.DEPTH_TEST);
+        Gl.depthMask(true);
+        Gl.disable(Gl.BLEND);
+        Gl.useProgram(this.Program);
+        this.LastProgram = "main";
+    }
+
+    DrawIonLabels(ViewMatrix, ProjectionMatrix) {
+        const Ctx = this.LabelCtx;
+        const Canvas = this.LabelCanvas;
+        if (!Ctx || !Canvas) return;
+        const Dpr = this.LabelDpr || 1;
+        Ctx.setTransform(Dpr, 0, 0, Dpr, 0, 0);
+        const Mode = this.DisplayMode || "none";
+        Ctx.clearRect(0, 0, Canvas.width / Dpr, Canvas.height / Dpr);
+        if (Mode !== "none" && Mode !== "charge") return;
+
+        Ctx.textAlign = "left";
+        Ctx.textBaseline = "bottom";
+        Ctx.font = "600 12px Cascadia Mono, ui-monospace, monospace";
+
+        const Labels = [];
+        for (let I = 0; I < Objects.length; I++) {
+            const Obj = Objects[I];
+            if (!Obj) continue;
+            let Q = Obj.ExtraCharge || 0;
+            let IsPartial = false;
+            if (Mode === "charge") {
+                Q = Obj.PartialCharge || Q;
+                IsPartial = Math.abs(Obj.ExtraCharge || 0) < 0.05;
+            }
+            if (IsPartial) {
+                if (Math.abs(Q) < 0.08) continue;
+            } else {
+                const Qi = Math.round(Q);
+                if (Qi === 0) continue;
+                Q = Qi;
+            }
+            const Screen = this.ProjectWorldToScreen(
+                Obj.Position[0], Obj.Position[1], Obj.Position[2],
+                ViewMatrix, ProjectionMatrix
+            );
+            if (!Screen) continue;
+            // Offset to top-right of the atom disc
+            const RadiusPx = Math.max(10, (Obj.EffRadius || 20) * 0.35);
+            Labels.push({
+                X: Screen.X + RadiusPx * 0.55,
+                Y: Screen.Y - RadiusPx * 0.55,
+                Z: Screen.Z,
+                Q: IsPartial ? Q : Q,
+                Partial: IsPartial
+            });
+        }
+        Labels.sort((A, B) => A.Z - B.Z);
+
+        for (const L of Labels) {
+            const Text = L.Partial
+                ? (L.Q > 0 ? "δ+" : "δ-")
+                : (L.Q > 0 ? ("(+" + L.Q + ")") : ("(" + L.Q + ")"));
+            // anode (+): blue, cathode (-): red
+            if (L.Q > 0) {
+                Ctx.fillStyle = "rgba(80, 160, 255, 0.98)";
+                Ctx.strokeStyle = "rgba(10, 40, 90, 0.75)";
+            } else {
+                Ctx.fillStyle = "rgba(255, 90, 90, 0.98)";
+                Ctx.strokeStyle = "rgba(80, 10, 10, 0.75)";
+            }
+            Ctx.lineWidth = 3;
+            Ctx.strokeText(Text, L.X, L.Y);
+            Ctx.fillText(Text, L.X, L.Y);
+        }
+    }
+
     Render() {
         this.Step();
         const Gl = this.Gl;
@@ -2703,6 +3057,7 @@ globalThis.Renderer = class {
         this.DrawBoundaries(VM, PM);
         this.DrawBonds(VM, PM);
         if (this.DisplayMode !== "none") this.DrawDisplayOverlays(VM, PM);
+        // Ion charge tags are drawn after 3D pass so they stay readable
 
         if (this.SelectedObject) {
             const MolAtoms = this.GetMoleculeAtoms(this.SelectedObject);
@@ -2721,6 +3076,7 @@ globalThis.Renderer = class {
         this.LastProgram = "main";
         this.LastSetColorR = -1;
         this.LastTextureKey = null;
+        this.SetOutlineMode(false, null, 1.0);
 
         Gl.bindBuffer(Gl.ARRAY_BUFFER, this.PositionBuffer);
         Gl.vertexAttribPointer(this.AttributeLocations.Position, 3, Gl.FLOAT, false, 0, 0);
@@ -2741,6 +3097,13 @@ globalThis.Renderer = class {
 
         this.DrawPhotonWaves(VM, PM);
         this.DrawParticles(VM, PM);
+        if (this.LabelCtx && this.DisplayMode !== "charge" && this.DisplayMode !== "none") {
+            const Dpr = this.LabelDpr || 1;
+            this.LabelCtx.setTransform(Dpr, 0, 0, Dpr, 0, 0);
+            this.LabelCtx.clearRect(0, 0, this.LabelCanvas.width / Dpr, this.LabelCanvas.height / Dpr);
+        }
+        this.DrawChargeMetaballs(VM, PM);
+        this.DrawIonLabels(VM, PM);
     }
 };
 

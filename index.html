@@ -28,7 +28,11 @@
             <button type="button" class="MobileBtn" data-target="HierarchyPanel">Atoms</button>
         </div>
         <div class="Area Dashboard" id="DashboardPanel">
-            <small><img class="Favicon" src="Images/Favicon.svg">Mol</small><hr>
+            <div class="DashHeader">
+                <small><img class="Favicon" src="Images/Favicon.svg">Mol</small>
+                <button type="button" class="SettingsBtn" id="SettingsBtn" title="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="SettingsPanel">Settings</button>
+            </div>
+            <hr>
             <div><span>Framerate</span><span class="Framerate">000/s</span></div>
             <div><span>Delta Time</span><span class="DeltaTime">0.000ms</span></div>
             <div><span>Timescale</span><span class="TimeScale">0.50x</span></div>
@@ -93,6 +97,38 @@
                     </div>
                 </div>
             </div>
+        </div>
+                <div class="SettingsPanel" id="SettingsPanel" hidden role="dialog" aria-label="Settings">
+            <div class="SettingsTitle">Settings</div>
+            <div class="SettingsSection">
+                <div class="SettingsSectionTitle">Appearance</div>
+                <label class="SettingsRow">Theme
+                    <select id="SetTheme" class="UiSelect SettingsSelect">
+                        <option value="dark" selected>Dark</option>
+                        <option value="midnight">Midnight</option>
+                        <option value="slate">Slate</option>
+                        <option value="light">Light</option>
+                    </select>
+                </label>
+            </div>
+            <div class="SettingsSection">
+                <div class="SettingsSectionTitle">Preserve (local)</div>
+                <label class="SettingsCheck"><input type="checkbox" id="SetPreserveDisplay" checked> Display mode</label>
+                <label class="SettingsCheck"><input type="checkbox" id="SetPreserveSpawn" checked> Spawn settings & last element</label>
+                <label class="SettingsCheck"><input type="checkbox" id="SetPreservePlugins" checked> Open plugins</label>
+                <label class="SettingsCheck"><input type="checkbox" id="SetPreservePrefs" checked> System prefs (bath, friction, bounds)</label>
+                <label class="SettingsCheck"><input type="checkbox" id="SetPreserveScene"> Scene molecules (optional)</label>
+            </div>
+            <div class="SettingsSection">
+                <div class="SettingsSectionTitle">Simulation</div>
+                <label class="SettingsRow">Timescale <input type="range" id="SetTimescale" min="0.1" max="2" step="0.05" value="0.5"><span id="SetTimescaleVal">0.50</span></label>
+                <label class="SettingsCheck"><input type="checkbox" id="SetAutoSettle" checked> Auto-settle after spawn</label>
+            </div>
+            <div class="SettingsActions">
+                <button type="button" class="SettingsPrimary" id="SetSave">Save now</button>
+                <button type="button" id="SetClear">Clear saved data</button>
+            </div>
+            <div class="SettingsHint" id="SettingsHint">Stored in this browser only (localStorage).</div>
         </div>
         <div class="Tooltip"></div>
         <div class="SpawnMenu" id="SpawnMenu" hidden role="dialog" aria-label="Spawn options">

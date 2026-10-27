@@ -110,7 +110,7 @@ let ThrowVelocity = [0, 0, 0];
 let DragSamples = [];
 const DragSampleWindowMs = 60;
 
-const UiSelector = ".Area, .ContextMenu, .Tooltip, .PluginWidget, .PluginDock, .DropdownMenu, .MobileBar, .TouchControls, .SpawnMenu, button, select, input, label, textarea, canvas.WGraph";
+const UiSelector = ".Area, .ContextMenu, .Tooltip, .PluginWidget, .PluginDock, .DropdownMenu, .MobileBar, .TouchControls, .SpawnMenu, .SettingsPanel, button, select, input, label, textarea, canvas.WGraph";
 
 const IsTouchDevice = (typeof window !== "undefined") && (
     "ontouchstart" in window ||
@@ -1122,20 +1122,75 @@ function BuildMoleculeGroups() {
     return Groups;
 }
 
-function FormulaFromIndices(Indices) {
+function CountAtomsInIndices(Indices) {
     const Counts = {};
+    let Charge = 0;
     for (const i of Indices) {
-        const K = Objects[i].Key;
+        const Obj = Objects[i];
+        if (!Obj) continue;
+        const K = Obj.Key;
         Counts[K] = (Counts[K] || 0) + 1;
+        Charge += Obj.ExtraCharge || 0;
     }
-    const Keys = Object.keys(Counts).sort((A, B) => {
-        if (A === "C") return -1;
-        if (B === "C") return 1;
-        if (A === "H") return -1;
-        if (B === "H") return 1;
+    return { Counts, Charge: Math.round(Charge) };
+}
+
+function OrderedElementKeys(Counts) {
+    const Keys = Object.keys(Counts);
+    const HasC = Object.prototype.hasOwnProperty.call(Counts, "C");
+    if (HasC) {
+        // Hill system: C, H, then alphabetical
+        return Keys.sort((A, B) => {
+            if (A === "C") return -1;
+            if (B === "C") return 1;
+            if (A === "H") return -1;
+            if (B === "H") return 1;
+            return A.localeCompare(B);
+        });
+    }
+    // Inorganic / no carbon: lower electronegativity first (UF, HF, H2O)
+    return Keys.sort((A, B) => {
+        const EnA = (typeof Atoms !== "undefined" && Atoms[A] && Atoms[A].Electronegativity != null)
+            ? Atoms[A].Electronegativity : 99;
+        const EnB = (typeof Atoms !== "undefined" && Atoms[B] && Atoms[B].Electronegativity != null)
+            ? Atoms[B].Electronegativity : 99;
+        if (EnA !== EnB) return EnA - EnB;
         return A.localeCompare(B);
     });
-    return Keys.map((K) => Counts[K] > 1 ? `${K}${Counts[K]}` : K).join("");
+}
+
+function FormulaFromIndices(Indices) {
+    const { Counts, Charge } = CountAtomsInIndices(Indices);
+    const Keys = OrderedElementKeys(Counts);
+    let Plain = Keys.map((K) => Counts[K] > 1 ? `${K}${Counts[K]}` : K).join("");
+    if (Charge) {
+        const Abs = Math.abs(Charge);
+        Plain += (Abs > 1 ? String(Abs) : "") + (Charge > 0 ? "+" : "-");
+    }
+    return Plain;
+}
+
+function FormatFormulaHTML(Indices, MoleculeCount = 1) {
+    const { Counts, Charge } = CountAtomsInIndices(Indices);
+    const Keys = OrderedElementKeys(Counts);
+    let Html = "";
+    if (MoleculeCount > 1) Html += String(MoleculeCount);
+    for (const K of Keys) {
+        Html += K;
+        if (Counts[K] > 1) Html += `<sub>${Counts[K]}</sub>`;
+    }
+    if (Charge) {
+        const Abs = Math.abs(Charge);
+        const Sign = Charge > 0 ? "+" : "-";
+        Html += `<sup>${Abs > 1 ? Abs : ""}${Sign}</sup>`;
+    }
+    return Html;
+}
+
+function FormulaSignature(Indices) {
+    const { Counts, Charge } = CountAtomsInIndices(Indices);
+    const Keys = OrderedElementKeys(Counts);
+    return Keys.map((K) => `${K}:${Counts[K]}`).join("|") + `#${Charge}`;
 }
 
 function HierarchySignature(Entries) {
@@ -1272,10 +1327,25 @@ function UpdateHierarchy(ForceRebuild = false) {
         Fragments.push(GroupEl);
     };
 
+    // Merge identical molecular formulas so labels read like 2H2O
+    const FormulaBuckets = new Map();
     for (const Indices of MoleculeEntries) {
-        const Formula = FormulaFromIndices(Indices);
-        const GroupKey = `g${GroupIdx}_${Formula}_${Indices.length}`;
-        BuildGroup(GroupKey, Formula, Indices, true);
+        const Sig = FormulaSignature(Indices);
+        let Bucket = FormulaBuckets.get(Sig);
+        if (!Bucket) {
+            Bucket = { Sig, Molecules: [], Indices: [] };
+            FormulaBuckets.set(Sig, Bucket);
+        }
+        Bucket.Molecules.push(Indices);
+        Bucket.Indices.push(...Indices);
+    }
+    for (const Bucket of FormulaBuckets.values()) {
+        const Sample = Bucket.Molecules[0];
+        const MolCount = Bucket.Molecules.length;
+        const FormulaHtml = FormatFormulaHTML(Sample, MolCount);
+        const Plain = FormulaFromIndices(Sample);
+        const GroupKey = `g${GroupIdx}_${Plain}_x${MolCount}_${Bucket.Indices.length}`;
+        BuildGroup(GroupKey, FormulaHtml, Bucket.Indices, true);
         GroupIdx++;
     }
     if (FreeIndices.length > 0) {
@@ -1559,6 +1629,7 @@ function WireBound(Id, Axis) {
     // Keep fields populated from Prefs / renderer
     const Initial = Prefs["Bound" + Axis] ?? (CanvasRenderer ? CanvasRenderer["Boundary" + Axis] : 300) ?? 300;
     El.value = String(Math.round(Initial));
+    El.addEventListener("input", Apply);
     El.addEventListener("change", Apply);
     El.addEventListener("blur", Apply);
     El.addEventListener("keydown", (Event) => {
@@ -1740,7 +1811,11 @@ function EnhanceNumberFields(Root = document) {
                 else V = Math.round(V);
                 V = Math.max(Min, Math.min(Max, V));
                 Input.value = String(V);
-                Input.dispatchEvent(new Event("input", { bubbles: true }));
+                try {
+                    Input.dispatchEvent(new InputEvent("input", { bubbles: true, data: String(V), inputType: "insertText" }));
+                } catch (Err) {
+                    Input.dispatchEvent(new Event("input", { bubbles: true }));
+                }
                 Input.dispatchEvent(new Event("change", { bubbles: true }));
             });
             return Btn;
@@ -1759,3 +1834,331 @@ if (typeof MutationObserver !== "undefined") {
     });
     NumObs.observe(document.body, { childList: true, subtree: true });
 }
+
+
+/* ——— Settings + localStorage persistence ——— */
+const STORAGE_KEY = "mol.settings.v1";
+const SCENE_KEY = "mol.scene.v1";
+
+const SettingsState = {
+    Theme: "dark",
+    PreserveDisplay: true,
+    PreserveSpawn: true,
+    PreservePlugins: true,
+    PreservePrefs: true,
+    PreserveScene: false,
+    AutoSettle: true
+};
+
+function ApplyTheme(Theme) {
+    document.body.classList.remove("Theme-dark", "Theme-midnight", "Theme-slate", "Theme-light");
+    const T = Theme || "dark";
+    if (T !== "dark") document.body.classList.add("Theme-" + T);
+    SettingsState.Theme = T;
+}
+
+function CollectOpenPlugins() {
+    const Ids = [];
+    document.querySelectorAll(".PluginDockItem.active").forEach((El) => {
+        if (El.dataset.pluginId) Ids.push(El.dataset.pluginId);
+    });
+    return Ids;
+}
+
+function SerializeScene() {
+    if (typeof Objects === "undefined" || !Objects.length) return null;
+    const AtomsOut = [];
+    for (const Obj of Objects) {
+        if (!Obj) continue;
+        AtomsOut.push({
+            Key: Obj.Key,
+            P: [Obj.Position[0], Obj.Position[1], Obj.Position[2]],
+            V: [Obj.Velocity[0], Obj.Velocity[1], Obj.Velocity[2]],
+            C: Obj.ExtraCharge || 0
+        });
+    }
+    const Bonds = [];
+    const R = CanvasRenderer;
+    if (R && R.ForcedBonds) {
+        for (const K of R.ForcedBonds) Bonds.push(K);
+    }
+    return { Atoms: AtomsOut, ForcedBonds: Bonds };
+}
+
+function RestoreScene(Data) {
+    if (!Data || !Data.Atoms || typeof Atom !== "function") return;
+    if (typeof Objects !== "undefined") Objects.length = 0;
+    if (CanvasRenderer) {
+        CanvasRenderer.ForcedBonds?.clear();
+        CanvasRenderer.ActiveBondPairs?.clear();
+        CanvasRenderer.BondData?.clear();
+        CanvasRenderer.BondsDirty = true;
+    }
+    for (const A of Data.Atoms) {
+        const Obj = Atom(A.Key, A.P || [0, 0, 0], A.V || [0, 0, 0]);
+        if (Obj && A.C) Obj.ExtraCharge = A.C;
+    }
+    if (CanvasRenderer && Data.ForcedBonds) {
+        for (const K of Data.ForcedBonds) CanvasRenderer.ForcedBonds.add(K);
+        CanvasRenderer.SettleFrames = Math.max(CanvasRenderer.SettleFrames || 0, 120);
+        CanvasRenderer.BondsDirty = true;
+    }
+    if (typeof UpdateHierarchy === "function") UpdateHierarchy(true);
+}
+
+function SaveSettings(Manual = false) {
+    try {
+        const Payload = {
+            Theme: SettingsState.Theme,
+            Preserve: {
+                Display: SettingsState.PreserveDisplay,
+                Spawn: SettingsState.PreserveSpawn,
+                Plugins: SettingsState.PreservePlugins,
+                Prefs: SettingsState.PreservePrefs,
+                Scene: SettingsState.PreserveScene
+            },
+            AutoSettle: SettingsState.AutoSettle,
+            DisplayMode: SettingsState.PreserveDisplay && CanvasRenderer ? CanvasRenderer.DisplayMode : undefined,
+            Spawn: SettingsState.PreserveSpawn ? {
+                Element: document.getElementById("AtomSelect")?.value,
+                Count: document.getElementById("SpawnCount")?.value,
+                Pattern: document.getElementById("SpawnPattern")?.value,
+                Spacing: document.getElementById("SpawnSpacing")?.value,
+                Speed: document.getElementById("SpawnSpeed")?.value,
+                Origin: document.getElementById("SpawnOrigin")?.value,
+                RandomVel: document.getElementById("SpawnRandomVel")?.checked,
+                Charge: document.getElementById("SpawnCharge")?.checked,
+                Settle: document.getElementById("SpawnSettle")?.checked
+            } : undefined,
+            Prefs: SettingsState.PreservePrefs ? {
+                Bath: document.getElementById("PrefBath")?.value,
+                Free: document.getElementById("PrefFreeEnergy")?.value,
+                Friction: document.getElementById("PrefFriction")?.value,
+                BoundX: document.getElementById("PrefBoundX")?.value,
+                BoundY: document.getElementById("PrefBoundY")?.value,
+                BoundZ: document.getElementById("PrefBoundZ")?.value,
+                Excite: document.getElementById("PrefExcite")?.value,
+                Impulse: document.getElementById("PrefImpulse")?.value,
+                Shake: document.getElementById("PrefShake")?.value,
+                TimeScale: CanvasRenderer ? CanvasRenderer.TimeScale : undefined
+            } : undefined,
+            Plugins: SettingsState.PreservePlugins ? CollectOpenPlugins() : undefined
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(Payload));
+        if (SettingsState.PreserveScene) {
+            const Scene = SerializeScene();
+            if (Scene) localStorage.setItem(SCENE_KEY, JSON.stringify(Scene));
+            else localStorage.removeItem(SCENE_KEY);
+        } else {
+            localStorage.removeItem(SCENE_KEY);
+        }
+        const Hint = document.getElementById("SettingsHint");
+        if (Hint && Manual) {
+            Hint.textContent = "Saved to localStorage.";
+            setTimeout(() => { Hint.textContent = "Stored in this browser only (localStorage)."; }, 1800);
+        }
+    } catch (Err) {
+        console.warn("SaveSettings failed", Err);
+    }
+}
+
+function LoadSettings() {
+    try {
+        const Raw = localStorage.getItem(STORAGE_KEY);
+        if (!Raw) return;
+        const Data = JSON.parse(Raw);
+        if (!Data) return;
+        if (Data.Theme) ApplyTheme(Data.Theme);
+        if (Data.Preserve) {
+            SettingsState.PreserveDisplay = !!Data.Preserve.Display;
+            SettingsState.PreserveSpawn = !!Data.Preserve.Spawn;
+            SettingsState.PreservePlugins = !!Data.Preserve.Plugins;
+            SettingsState.PreservePrefs = !!Data.Preserve.Prefs;
+            SettingsState.PreserveScene = !!Data.Preserve.Scene;
+        }
+        SettingsState.AutoSettle = Data.AutoSettle !== false;
+
+        const SyncCheck = (Id, V) => {
+            const El = document.getElementById(Id);
+            if (El) El.checked = !!V;
+        };
+        SyncCheck("SetPreserveDisplay", SettingsState.PreserveDisplay);
+        SyncCheck("SetPreserveSpawn", SettingsState.PreserveSpawn);
+        SyncCheck("SetPreservePlugins", SettingsState.PreservePlugins);
+        SyncCheck("SetPreservePrefs", SettingsState.PreservePrefs);
+        SyncCheck("SetPreserveScene", SettingsState.PreserveScene);
+        SyncCheck("SetAutoSettle", SettingsState.AutoSettle);
+        const ThemeEl = document.getElementById("SetTheme");
+        if (ThemeEl) ThemeEl.value = SettingsState.Theme || "dark";
+
+        if (SettingsState.PreserveDisplay && Data.DisplayMode && typeof SetDisplayMode === "function") {
+            SetDisplayMode(Data.DisplayMode);
+            // update dropdown UI
+            document.querySelectorAll("#DisplayDropdownMenu .DropdownItem").forEach((Item) => {
+                Item.classList.toggle("active", Item.dataset.mode === Data.DisplayMode);
+            });
+            const Lab = document.getElementById("DisplayDropdownLabel");
+            if (Lab) {
+                const Active = document.querySelector("#DisplayDropdownMenu .DropdownItem.active span:last-child");
+                if (Active) Lab.textContent = Active.textContent;
+            }
+        }
+
+        if (SettingsState.PreserveSpawn && Data.Spawn) {
+            const S = Data.Spawn;
+            const SetVal = (Id, V) => { const El = document.getElementById(Id); if (El && V != null) El.value = V; };
+            SetVal("AtomSelect", S.Element);
+            SetVal("SpawnCount", S.Count);
+            SetVal("SpawnPattern", S.Pattern);
+            SetVal("SpawnSpacing", S.Spacing);
+            SetVal("SpawnSpeed", S.Speed);
+            SetVal("SpawnOrigin", S.Origin);
+            const SpVal = document.getElementById("SpawnSpacingVal");
+            if (SpVal && S.Spacing != null) SpVal.textContent = String(S.Spacing);
+            const SpdVal = document.getElementById("SpawnSpeedVal");
+            if (SpdVal && S.Speed != null) SpdVal.textContent = Number(S.Speed).toFixed(1);
+            if (document.getElementById("SpawnRandomVel") && S.RandomVel != null) document.getElementById("SpawnRandomVel").checked = !!S.RandomVel;
+            if (document.getElementById("SpawnCharge") && S.Charge != null) document.getElementById("SpawnCharge").checked = !!S.Charge;
+            if (document.getElementById("SpawnSettle") && S.Settle != null) document.getElementById("SpawnSettle").checked = !!S.Settle;
+        }
+
+        if (SettingsState.PreservePrefs && Data.Prefs) {
+            const P = Data.Prefs;
+            const ApplyRange = (Id, ValId, V, Fmt) => {
+                if (V == null) return;
+                const El = document.getElementById(Id);
+                if (El) {
+                    El.value = V;
+                    El.dispatchEvent(new Event("input", { bubbles: true }));
+                }
+                const Lab = document.getElementById(ValId);
+                if (Lab) Lab.textContent = Fmt ? Fmt(Number(V)) : V;
+            };
+            ApplyRange("PrefBath", "PrefBathVal", P.Bath, (V) => V.toFixed(2));
+            ApplyRange("PrefFreeEnergy", "PrefFreeEnergyVal", P.Free, (V) => V.toFixed(1));
+            ApplyRange("PrefFriction", "PrefFrictionVal", P.Friction, (V) => V.toFixed(2));
+            ApplyRange("PrefExcite", "PrefExciteVal", P.Excite, (V) => V.toFixed(1));
+            ApplyRange("PrefImpulse", "PrefImpulseVal", P.Impulse, (V) => String(V));
+            ApplyRange("PrefShake", "PrefShakeVal", P.Shake, (V) => V.toFixed(1));
+            for (const [Id, V] of [["PrefBoundX", P.BoundX], ["PrefBoundY", P.BoundY], ["PrefBoundZ", P.BoundZ]]) {
+                const El = document.getElementById(Id);
+                if (El && V != null) {
+                    El.value = V;
+                    El.dispatchEvent(new Event("change", { bubbles: true }));
+                }
+            }
+            if (P.TimeScale != null && CanvasRenderer) {
+                CanvasRenderer.TimeScale = Number(P.TimeScale);
+                const Ts = document.getElementById("SetTimescale");
+                const Tsv = document.getElementById("SetTimescaleVal");
+                if (Ts) Ts.value = String(P.TimeScale);
+                if (Tsv) Tsv.textContent = Number(P.TimeScale).toFixed(2);
+            }
+        }
+
+        if (SettingsState.PreservePlugins && Array.isArray(Data.Plugins) && globalThis.Plugin) {
+            setTimeout(() => {
+                for (const Id of Data.Plugins) {
+                    const Entry = globalThis.Plugin.Get?.(Id);
+                    if (Entry && typeof Entry.Open === "function") {
+                        try {
+                            globalThis.Plugin.Emit?.("OpenPlugin", { Id });
+                            Entry.Open(globalThis.Plugin /* context incomplete - dock click better */);
+                        } catch (Err) {}
+                    }
+                    const Item = document.querySelector(`.PluginDockItem[data-plugin-id="${Id}"]`);
+                    if (Item) Item.click();
+                }
+            }, 400);
+        }
+
+        if (SettingsState.PreserveScene) {
+            const SceneRaw = localStorage.getItem(SCENE_KEY);
+            if (SceneRaw) {
+                try {
+                    const Scene = JSON.parse(SceneRaw);
+                    setTimeout(() => RestoreScene(Scene), 600);
+                } catch (Err) {}
+            }
+        }
+    } catch (Err) {
+        console.warn("LoadSettings failed", Err);
+    }
+}
+
+function WireSettingsPanel() {
+    const Btn = document.getElementById("SettingsBtn");
+    const Panel = document.getElementById("SettingsPanel");
+    if (!Btn || !Panel) return;
+
+    const Position = () => {
+        const R = Btn.getBoundingClientRect();
+        const W = Math.min(320, window.innerWidth - 16);
+        let Left = R.left;
+        Left = Math.max(8, Math.min(Left, window.innerWidth - W - 8));
+        let Top = R.bottom + 8;
+        Panel.style.left = Left + "px";
+        Panel.style.top = Top + "px";
+        Panel.style.width = W + "px";
+        const Pr = Panel.getBoundingClientRect();
+        if (Pr.bottom > window.innerHeight - 8) {
+            Panel.style.top = Math.max(8, R.top - Pr.height - 8) + "px";
+        }
+    };
+
+    Btn.addEventListener("click", (Event) => {
+        Event.stopPropagation();
+        const Open = Panel.hidden;
+        Panel.hidden = !Open;
+        Btn.setAttribute("aria-expanded", Open ? "true" : "false");
+        if (Open) Position();
+    });
+    Panel.addEventListener("mousedown", (Event) => Event.stopPropagation());
+    document.addEventListener("mousedown", (Event) => {
+        if (!Panel.hidden && !Event.target.closest("#SettingsPanel, #SettingsBtn")) {
+            Panel.hidden = true;
+            Btn.setAttribute("aria-expanded", "false");
+        }
+    });
+
+    const ThemeEl = document.getElementById("SetTheme");
+    if (ThemeEl) {
+        ThemeEl.addEventListener("change", () => ApplyTheme(ThemeEl.value));
+    }
+    const BindCheck = (Id, Key) => {
+        const El = document.getElementById(Id);
+        if (!El) return;
+        El.addEventListener("change", () => { SettingsState[Key] = !!El.checked; });
+    };
+    BindCheck("SetPreserveDisplay", "PreserveDisplay");
+    BindCheck("SetPreserveSpawn", "PreserveSpawn");
+    BindCheck("SetPreservePlugins", "PreservePlugins");
+    BindCheck("SetPreservePrefs", "PreservePrefs");
+    BindCheck("SetPreserveScene", "PreserveScene");
+    BindCheck("SetAutoSettle", "AutoSettle");
+
+    const Ts = document.getElementById("SetTimescale");
+    const Tsv = document.getElementById("SetTimescaleVal");
+    if (Ts) {
+        Ts.addEventListener("input", () => {
+            const V = Number(Ts.value) || 0.5;
+            if (Tsv) Tsv.textContent = V.toFixed(2);
+            if (CanvasRenderer) CanvasRenderer.TimeScale = V;
+        });
+    }
+
+    document.getElementById("SetSave")?.addEventListener("click", () => SaveSettings(true));
+    document.getElementById("SetClear")?.addEventListener("click", () => {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(SCENE_KEY);
+        const Hint = document.getElementById("SettingsHint");
+        if (Hint) Hint.textContent = "Cleared saved data.";
+    });
+
+    window.addEventListener("beforeunload", () => SaveSettings(false));
+}
+
+WireSettingsPanel();
+// Load after renderer boots
+const _BootPromise = (typeof BootRenderer === "function") ? null : null;
+setTimeout(() => LoadSettings(), 500);
