@@ -1,6 +1,11 @@
 (function AiHelperPlugin() {
     const GROQ_API_KEY = `${"gsk_"}${"zlpe8ckeeBSowWvIASzR"}${"WGdyb3FYhkMoxCCPrEWV"}${"G7cYzDmtN6cY"}`;
-    const GROQ_MODEL = "llama-3.3-70b-versatile";
+    const GROQ_MODELS = [
+        "qwen/qwen3.8-27b",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b"
+    ];
+    let GROQ_MODEL = GROQ_MODELS[0];
 
     const MoleculeCatalog = [
         {
@@ -235,7 +240,56 @@
                 [0, 6], [0, 7], [1, 8], [2, 9], [2, 10],
                 [3, 11], [4, 12], [5, 13]
             ]
-        }
+        },
+
+        {
+            Id: "detergent",
+            Names: "detergent soap surfactant SLS sodium lauryl sulfate sodium dodecyl sulfate SDS washing liquid dish soap laundry",
+            Atoms: (function () {
+                // Simplified SDS-like chain: Na + O3S head + short alkyl (not full C12)
+                const A = [
+                    ["Na", -95, 0, 0],
+                    ["O", -55, 0, 0],
+                    ["S", -15, 0, 0],
+                    ["O", -15, 45, 0],
+                    ["O", -15, -45, 0],
+                    ["O", 25, 0, 0],
+                    ["C", 65, 0, 0],
+                    ["C", 105, 0, 0],
+                    ["C", 145, 0, 0],
+                    ["C", 185, 0, 0],
+                    ["H", 65, 40, 0], ["H", 65, -40, 0],
+                    ["H", 105, 40, 0], ["H", 105, -40, 0],
+                    ["H", 145, 40, 0], ["H", 145, -40, 0],
+                    ["H", 185, 40, 0], ["H", 185, -40, 0], ["H", 220, 0, 0]
+                ];
+                return A;
+            })(),
+            Bonds: [
+                [0, 1], [1, 2], [2, 3], [2, 4], [2, 5], [5, 6], [6, 7], [7, 8], [8, 9],
+                [6, 10], [6, 11], [7, 12], [7, 13], [8, 14], [8, 15], [9, 16], [9, 17], [9, 18]
+            ]
+        },
+        {
+            Id: "nitroglycerin",
+            Names: "nitroglycerin nitroglycerine glyceryl trinitrate TNT explosive NG",
+            Atoms: [
+                ["C", -40, 0, 0], ["C", 0, 0, 0], ["C", 40, 0, 0],
+                ["O", -40, 40, 0], ["O", 0, 40, 0], ["O", 40, 40, 0],
+                ["N", -40, 80, 0], ["N", 0, 80, 0], ["N", 40, 80, 0],
+                ["O", -65, 100, 0], ["O", -15, 100, 0],
+                ["O", -20, 100, 0], ["O", 20, 100, 0],
+                ["O", 15, 100, 0], ["O", 65, 100, 0],
+                ["H", -40, -40, 0], ["H", 0, -40, 0], ["H", 40, -40, 0]
+            ],
+            Bonds: [
+                [0, 1], [1, 2], [0, 3], [1, 4], [2, 5],
+                [3, 6], [4, 7], [5, 8],
+                [6, 9], [6, 10], [7, 11], [7, 12], [8, 13], [8, 14],
+                [0, 15], [1, 16], [2, 17]
+            ]
+        },
+
     ];
 
     function GetRenderer() {
@@ -342,24 +396,73 @@
             return `Bounds set to ${BoundM[1]}x${BoundM[2]}x${BoundM[3]}.`;
         }
 
-        const TempM = Lower.match(/(?:bath|temp(?:erature)?)\s*(?:to\s*)?([0-9]*\.?[0-9]+)/i)
-            || Lower.match(/(?:cool|heat)\s+(?:the\s+)?(?:bath|system)?/i);
-        if (TempM) {
-            let V;
-            if (TempM[1] != null) V = Number(TempM[1]);
-            else if (/cool/i.test(Lower)) V = 0.08;
-            else if (/heat/i.test(Lower)) V = 0.8;
+        function SetBath(V) {
             const R = GetRenderer();
-            if (isFinite(V) && R) {
-                V = Math.max(0, Math.min(2, V));
-                R.Temperature = V;
-                const BathEl = document.getElementById("PrefBath");
-                const BathVal = document.getElementById("PrefBathVal");
-                if (BathEl) BathEl.value = String(V);
-                if (BathVal) BathVal.textContent = V.toFixed(2);
-                const BathTempLabel = document.querySelector(".BathTemp");
-                if (BathTempLabel) BathTempLabel.textContent = V.toFixed(2);
-                return `Bath temperature set to ${V.toFixed(2)}.`;
+            if (!R || !isFinite(V)) return null;
+            V = Math.max(0, Math.min(2, V));
+            R.Temperature = V;
+            const BathTempLabel = document.querySelector(".BathTemp");
+            if (BathTempLabel) BathTempLabel.textContent = V.toFixed(2);
+            if (typeof globalThis.ApplyStatControl === "function") globalThis.ApplyStatControl("bath", V / 2);
+            return "Bath temperature set to " + V.toFixed(2) + ".";
+        }
+        function SetFriction(V) {
+            const R = GetRenderer();
+            if (!R || !isFinite(V)) return null;
+            V = Math.max(0, Math.min(1, V));
+            R.Friction = V;
+            const Lab = document.querySelector(".FrictionVal");
+            if (Lab) Lab.textContent = V.toFixed(2);
+            if (typeof globalThis.ApplyStatControl === "function") globalThis.ApplyStatControl("friction", V);
+            return "Friction set to " + V.toFixed(2) + ".";
+        }
+        function SetTimescale(V) {
+            const R = GetRenderer();
+            if (!R || !isFinite(V)) return null;
+            V = Math.max(0, Math.min(2, V));
+            R.TargetTimeScale = V;
+            if (V <= 0) R.TimeScale = 0;
+            if (typeof globalThis.ApplyStatControl === "function") globalThis.ApplyStatControl("timescale", V / 2);
+            return V <= 0 ? "Simulation paused." : ("Timescale set to " + V.toFixed(2) + "x.");
+        }
+
+        if (/\b(bath|temperature|temp)\b/.test(Lower) || /\b(warm|hot|cold|cool|heat|chill|freeze|boil)\b/.test(Lower)) {
+            const Num = Lower.match(/(?:to\s*)?([0-9]*\.?[0-9]+)/);
+            let V = null;
+            if (Num && Num[1] !== "") V = Number(Num[1]);
+            else if (/\b(freeze|frozen|ice)\b/.test(Lower)) V = 0;
+            else if (/\b(cold|cool|chill|icy)\b/.test(Lower)) V = 0.08;
+            else if (/\b(lukewarm|mild|room)\b/.test(Lower)) V = 0.35;
+            else if (/\bwarm\b/.test(Lower)) V = 0.65;
+            else if (/\b(hot|heat|heated)\b/.test(Lower)) V = 1.1;
+            else if (/\b(boil|scorching)\b/.test(Lower)) V = 1.8;
+            if (V != null) {
+                const Msg = SetBath(V);
+                if (Msg) return Msg;
+            }
+        }
+
+        if (/\bfriction\b/.test(Lower)) {
+            const Num = Lower.match(/([0-9]*\.?[0-9]+)/);
+            let V = Num ? Number(Num[1]) : null;
+            if (V == null && /\b(high|strong|more)\b/.test(Lower)) V = 0.85;
+            if (V == null && /\b(low|weak|less|none)\b/.test(Lower)) V = 0.15;
+            if (V != null) {
+                if (V > 1 && V <= 100) V /= 100;
+                const Msg = SetFriction(V);
+                if (Msg) return Msg;
+            }
+        }
+
+        if (/\b(timescale|time\s*scale|slow\s*mo|pause)\b/.test(Lower) || (/\bspeed\b/.test(Lower) && !/\blight\b/.test(Lower))) {
+            const Num = Lower.match(/([0-9]*\.?[0-9]+)/);
+            let V = Num ? Number(Num[1]) : null;
+            if (/\bpause|stopped\b/.test(Lower)) V = 0;
+            if (V == null && /\bslow\b/.test(Lower)) V = 0.2;
+            if (V == null && /\b(fast|quick)\b/.test(Lower)) V = 1.5;
+            if (V != null) {
+                const Msg = SetTimescale(V);
+                if (Msg) return Msg;
             }
         }
 
@@ -374,41 +477,140 @@
         return null;
     }
 
-    async function MatchMoleculeWithGroq(Query) {
-        const CatalogLines = MoleculeCatalog.map((M) => `- ${M.Id}: ${M.Names}`).join("\n");
-        const System = `You map user requests to a molecule id from a fixed catalog for a chemistry simulator.
-Reply with ONLY a JSON object: {"id":"<catalog_id>"} or {"id":null} if nothing fits.
-Valid ids:\n${CatalogLines}`;
+    function ExtractJsonObject(Text) {
+        if (!Text) return null;
+        let S = String(Text).trim();
+        // Strip markdown fences
+        S = S.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+        // Prefer object that contains id or atoms
+        const Candidates = [];
+        for (let i = 0; i < S.length; i++) {
+            if (S[i] !== "{") continue;
+            let Depth = 0;
+            let InStr = false;
+            let Esc = false;
+            for (let j = i; j < S.length; j++) {
+                const C = S[j];
+                if (InStr) {
+                    if (Esc) Esc = false;
+                    else if (C === "\\") Esc = true;
+                    else if (C === "\"") InStr = false;
+                    continue;
+                }
+                if (C === "\"") InStr = true;
+                else if (C === "{") Depth++;
+                else if (C === "}") {
+                    Depth--;
+                    if (Depth === 0) {
+                        Candidates.push(S.slice(i, j + 1));
+                        i = j;
+                        break;
+                    }
+                }
+            }
+        }
+        for (const Cand of Candidates.reverse()) {
+            try {
+                const Obj = JSON.parse(Cand);
+                if (Obj && (
+                    Object.prototype.hasOwnProperty.call(Obj, "id")
+                    || Object.prototype.hasOwnProperty.call(Obj, "action")
+                    || Array.isArray(Obj.atoms)
+                )) {
+                    return Obj;
+                }
+            } catch (E) {}
+        }
+        // Last resort: first parseable object
+        for (const Cand of Candidates) {
+            try { return JSON.parse(Cand); } catch (E) {}
+        }
+        return null;
+    }
+
+    async function GroqChat(Messages, Extra = {}) {
+        const Body = {
+            model: GROQ_MODEL,
+            temperature: Extra.temperature ?? 0.1,
+            max_tokens: Extra.max_tokens ?? 1400,
+            messages: Messages
+        };
+        // json_object mode when supported
+        if (Extra.json !== false) {
+            Body.response_format = { type: "json_object" };
+        }
         const Res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${GROQ_API_KEY}`,
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({
-                model: GROQ_MODEL,
-                temperature: 0,
-                max_tokens: 40,
-                messages: [
-                    { role: "system", content: System },
-                    { role: "user", content: Query }
-                ]
-            })
+            body: JSON.stringify(Body)
         });
         if (!Res.ok) {
-            const Body = await Res.text().catch(() => "");
-            throw new Error(`Groq HTTP ${Res.status}${Body ? ": " + Body.slice(0, 140) : ""}`);
+            const ErrBody = await Res.text().catch(() => "");
+            // Retry without response_format if rejected
+            if (Extra.json !== false && (Res.status === 400 || /response_format|json_object/i.test(ErrBody))) {
+                return GroqChat(Messages, { ...Extra, json: false });
+            }
+            throw new Error(`Groq HTTP ${Res.status}${ErrBody ? ": " + ErrBody.slice(0, 180) : ""}`);
         }
         const Data = await Res.json();
-        const Text = Data.choices?.[0]?.message?.content || "";
-        const JsonMatch = Text.match(/\{[\s\S]*\}/);
-        if (!JsonMatch) throw new Error("No JSON in model reply");
-        let Parsed;
-        try { Parsed = JSON.parse(JsonMatch[0]); } catch (E) { throw new Error("Bad JSON from model"); }
-        const Id = Parsed && Parsed.id;
-        if (!Id) return { Entry: null, Score: 0 };
-        const Entry = MoleculeCatalog.find((M) => M.Id === Id) || null;
-        return { Entry, Score: Entry ? 1 : 0, Index: Entry ? MoleculeCatalog.indexOf(Entry) : -1 };
+        return Data.choices?.[0]?.message?.content || "";
+    }
+
+    async function InterpretCommand(Query) {
+        const System = `You control a 3D molecular physics simulator. Convert the user request into ONE JSON action object. No markdown, no prose.
+
+Actions:
+{"action":"clear"}
+{"action":"set_bath","value":0.0_to_2.0}   // thermal bath; warm~0.65, hot~1.1, cold~0.08
+{"action":"set_friction","value":0.0_to_1.0}
+{"action":"set_timescale","value":0.0_to_2.0}  // 0=pause
+{"action":"set_bounds","x":100_to_1500,"y":100_to_1500,"z":100_to_1500}
+{"action":"spawn_elements","element":"Fe","count":1_to_40,"clear":false}
+{"action":"spawn","name":"optional","clear":true,"atoms":[["El",x,y,z],...],"bonds":[[i,j],...]}
+{"action":"unknown","message":"short reason"}
+
+Rules:
+- "make the bath warm/hot/cold" => set_bath (not spawn)
+- "make water/methane/detergent/..." => spawn with a compact 3D structure (elements H,C,N,O,F,P,S,Cl,Na,K,Mg,Ca,Fe only; <= 36 atoms; coords about -150..150)
+- Prefer spawn with atoms/bonds over catalog names
+- clear=true when user says make/replace/only a molecule`;
+
+        let LastErr = null;
+        for (const Model of GROQ_MODELS) {
+            GROQ_MODEL = Model;
+            try {
+                const Text = await GroqChat([
+                    { role: "system", content: System },
+                    { role: "user", content: Query }
+                ], { temperature: 0.1, max_tokens: 1600 });
+                let Parsed = ExtractJsonObject(Text);
+                if (!Parsed) {
+                    const Retry = await GroqChat([
+                        { role: "system", content: System },
+                        { role: "user", content: Query },
+                        { role: "assistant", content: Text || "" },
+                        { role: "user", content: "Reply with ONLY a valid JSON action object from the schema." }
+                    ], { temperature: 0 });
+                    Parsed = ExtractJsonObject(Retry);
+                }
+                if (Parsed && Parsed.action) return Parsed;
+                // Accept legacy molecule shapes
+                if (Parsed && Array.isArray(Parsed.atoms)) {
+                    return { action: "spawn", clear: true, atoms: Parsed.atoms, bonds: Parsed.bonds || [], name: "custom" };
+                }
+                if (Parsed && Parsed.id) {
+                    return { action: "spawn_id", id: Parsed.id, clear: true };
+                }
+                LastErr = new Error("Model returned no action JSON");
+            } catch (Err) {
+                LastErr = Err;
+                console.warn("Groq model failed", Model, Err);
+            }
+        }
+        throw LastErr || new Error("All models failed");
     }
 
     function LocalFallbackMatch(Query) {
@@ -429,6 +631,79 @@ Valid ids:\n${CatalogLines}`;
         return BestScore >= 3 ? Best : null;
     }
 
+    function ExecuteAction(Cmd, OriginalText) {
+        if (!Cmd || !Cmd.action) return { ok: false, message: "Unknown command." };
+        const A = Cmd.action;
+        if (A === "clear") {
+            ClearAll();
+            return { ok: true, message: "Cleared all atoms." };
+        }
+        if (A === "set_bath") {
+            const R = GetRenderer();
+            let V = Number(Cmd.value);
+            if (!isFinite(V)) return { ok: false, message: "Invalid bath value." };
+            V = Math.max(0, Math.min(2, V));
+            if (R) R.Temperature = V;
+            if (typeof globalThis.ApplyStatControl === "function") globalThis.ApplyStatControl("bath", V / 2);
+            const Lab = document.querySelector(".BathTemp");
+            if (Lab) Lab.textContent = V.toFixed(2);
+            return { ok: true, message: "Bath temperature set to " + V.toFixed(2) + "." };
+        }
+        if (A === "set_friction") {
+            const R = GetRenderer();
+            let V = Number(Cmd.value);
+            if (!isFinite(V)) return { ok: false, message: "Invalid friction." };
+            V = Math.max(0, Math.min(1, V));
+            if (R) R.Friction = V;
+            if (typeof globalThis.ApplyStatControl === "function") globalThis.ApplyStatControl("friction", V);
+            return { ok: true, message: "Friction set to " + V.toFixed(2) + "." };
+        }
+        if (A === "set_timescale") {
+            const R = GetRenderer();
+            let V = Number(Cmd.value);
+            if (!isFinite(V)) return { ok: false, message: "Invalid timescale." };
+            V = Math.max(0, Math.min(2, V));
+            if (R) {
+                R.TargetTimeScale = V;
+                if (V <= 0) R.TimeScale = 0;
+            }
+            if (typeof globalThis.ApplyStatControl === "function") globalThis.ApplyStatControl("timescale", V / 2);
+            return { ok: true, message: V <= 0 ? "Paused." : ("Timescale set to " + V.toFixed(2) + "x.") };
+        }
+        if (A === "set_bounds") {
+            SetBounds(Cmd.x, Cmd.y, Cmd.z);
+            return { ok: true, message: `Bounds set to ${Cmd.x}x${Cmd.y}x${Cmd.z}.` };
+        }
+        if (A === "spawn_elements") {
+            const El = String(Cmd.element || "").trim();
+            const N = SpawnElements(El, Number(Cmd.count) || 1, !!Cmd.clear);
+            if (!N) return { ok: false, message: "Unknown element " + El };
+            return { ok: true, message: `Spawned ${N}x ${El}.` };
+        }
+        if (A === "spawn_id") {
+            const Entry = MoleculeCatalog.find((M) => M.Id === Cmd.id);
+            if (!Entry) return { ok: false, message: "Unknown molecule id." };
+            const N = SpawnMolecule(Entry, Cmd.clear !== false);
+            return { ok: true, message: `Spawned ${Entry.Id} (${N} atoms).` };
+        }
+        if (A === "spawn") {
+            const Atoms = Array.isArray(Cmd.atoms) ? Cmd.atoms : [];
+            if (!Atoms.length) return { ok: false, message: "Spawn had no atoms." };
+            const Entry = {
+                Id: Cmd.name || "custom",
+                Atoms,
+                Bonds: Array.isArray(Cmd.bonds) ? Cmd.bonds : []
+            };
+            const Clear = Cmd.clear !== false || /make\s+(me\s+)?/i.test(OriginalText || "");
+            const N = SpawnMolecule(Entry, Clear);
+            return { ok: true, message: `Spawned ${Entry.Id} (${N} atoms).` };
+        }
+        if (A === "unknown") {
+            return { ok: false, message: Cmd.message || "Could not understand that." };
+        }
+        return { ok: false, message: "Unsupported action: " + A };
+    }
+
     async function RunCommand(Raw) {
         const Text = (Raw || "").trim();
         if (!Text) return { ok: false, message: "" };
@@ -436,32 +711,21 @@ Valid ids:\n${CatalogLines}`;
         const Local = TryLocalCommand(Text);
         if (Local) return { ok: true, message: Local };
 
-        let Entry = null;
-        let Via = "local";
         try {
-            const Ranked = await MatchMoleculeWithGroq(Text);
-            Entry = Ranked.Entry;
-            Via = Ranked.Score ? 'groq' : 'none';
-            if ((Ranked.Score || 0) < 0.05) {
-                const Fb = LocalFallbackMatch(Text);
-                if (Fb) { Entry = Fb; Via = "fallback"; }
-            }
+            const Cmd = await InterpretCommand(Text);
+            return ExecuteAction(Cmd, Text);
         } catch (Err) {
-            console.warn("AI groq failed", Err);
-            Entry = LocalFallbackMatch(Text);
-            Via = "offline";
-            if (!Entry) {
-                return { ok: false, message: String(Err.message || Err).slice(0, 80) };
+            console.warn("AI interpret failed", Err);
+            const Fb = LocalFallbackMatch(Text);
+            if (Fb) {
+                const N = SpawnMolecule(Fb, true);
+                return { ok: true, message: `Spawned ${Fb.Id} (${N} atoms | offline).` };
             }
+            return {
+                ok: false,
+                message: "Could not run that. Try: make the bath warm | clear all | make water"
+            };
         }
-
-        if (!Entry) {
-            return { ok: false, message: "No matching molecule in catalog." };
-        }
-
-        const ClearFirst = /clear|replace|only|fresh/i.test(Text) || /make\s+(me\s+)?/i.test(Text);
-        const N = SpawnMolecule(Entry, ClearFirst);
-        return { ok: true, message: `Spawned ${Entry.Id.toUpperCase()} (${N} atoms | ${Via})` };
     }
 
     function OpenWidget(Api) {
@@ -476,7 +740,7 @@ Valid ids:\n${CatalogLines}`;
 
                 const Hint = document.createElement("div");
                 Hint.className = "WHint";
-                Hint.textContent = "Spawn molecules, clear the scene, set bounds or bath temp.";
+                Hint.textContent = "Natural language: molecules, bath, friction, bounds, clear…";
                 Section.appendChild(Hint);
 
                 const Row = document.createElement("div");
@@ -484,7 +748,7 @@ Valid ids:\n${CatalogLines}`;
                 const Input = document.createElement("input");
                 Input.type = "text";
                 Input.className = "WText AiCmdInput";
-                Input.placeholder = "Make acetylene | clear all | cool bath...";
+                Input.placeholder = "make the bath warm | make water | clear all…";
                 Input.autocomplete = "off";
                 Input.spellcheck = false;
                 Row.appendChild(Input);
@@ -510,8 +774,9 @@ Valid ids:\n${CatalogLines}`;
                 List.style.flexDirection = "column";
                 List.style.gap = "4px";
                 for (const Ex of [
-                    "make acetylene",
-                    "glucose",
+                    "make the bath warm",
+                    "make water",
+                    "make detergent",
                     "clear all",
                     "spawn 8 Fe",
                     "bounds 400 400 300",

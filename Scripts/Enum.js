@@ -324,7 +324,6 @@ function CreateTextTexture(Gl, Text) {
     Ctx.lineJoin = "round";
     Ctx.strokeStyle = "rgba(0, 0, 0, 0.72)";
     Ctx.lineWidth = 12;
-    // Two copies across the strip so spherical REPEAT hides the longitude seam
     for (const X of [Canvas.width * 0.25, Canvas.width * 0.75]) {
         Ctx.strokeText(Text, X, Canvas.height * 0.52);
         Ctx.fillStyle = "#ffffff";
@@ -354,7 +353,7 @@ globalThis.ShaderSources = {
 globalThis.LoadShaders = async function () {
     const Fallbacks = {
         Vertex: '#version 300 es\nin vec3 APosition;\nin vec3 ANormal;\nuniform mat4 UModel;\nuniform mat4 UView;\nuniform mat4 UProjection;\nuniform float UOutlineScale;\nout vec3 VNormal;\nout vec3 VWorldPosition;\nout vec3 VLocalPosition;\nvoid main() {\n    float S = max(UOutlineScale, 0.001);\n    vec3 Pos = APosition * S;\n    VLocalPosition = APosition;\n    vec4 WorldPosition = UModel * vec4(Pos, 1.0);\n    VWorldPosition = WorldPosition.xyz;\n    VNormal = mat3(UModel) * ANormal;\n    gl_Position = UProjection * UView * WorldPosition;\n}\n',
-        Fragment: '#version 300 es\nprecision mediump float;\nin vec3 VNormal;\nin vec3 VWorldPosition;\nin vec3 VLocalPosition;\nuniform vec3 UColor;\nuniform vec3 ULightPosition;\nuniform vec3 UCameraPosition;\nuniform sampler2D UTexture;\nuniform float UOutlineMode;\nuniform vec4 UOutlineColor;\nout vec4 FragColor;\nconst float PI = 3.14159265359;\n\nvoid main() {\n    // Solid outline / particle pass\n    if (UOutlineMode > 0.5) {\n        FragColor = UOutlineColor;\n        return;\n    }\n\n    vec3 Normal = normalize(VNormal);\n    vec3 Local = normalize(VLocalPosition);\n    vec3 ViewDirection = normalize(UCameraPosition - VWorldPosition);\n    vec3 LightDirection = normalize(ULightPosition - VWorldPosition);\n\n    float U = 0.5 - atan(Local.z, Local.x) / (2.0 * PI);\n    float V = 0.5 - asin(clamp(Local.y, -1.0, 1.0)) / PI;\n    vec4 TexColor = texture(UTexture, vec2(U, V));\n\n    float Wrap = 0.4;\n    float NdotL = max(dot(Normal, LightDirection) + Wrap, 0.0) / (1.0 + Wrap);\n    float Diffuse = 0.58 + 0.42 * NdotL;\n    float Spec = pow(max(dot(Normal, normalize(LightDirection + ViewDirection)), 0.0), 56.0) * 0.14;\n    float Facing = max(dot(Normal, ViewDirection), 0.0);\n    float Rim = pow(1.0 - Facing, 2.2) * 0.14;\n\n    vec3 BaseColor = mix(UColor, TexColor.rgb, TexColor.a * 0.92);\n    vec3 FinalColor = BaseColor * Diffuse + vec3(Spec);\n    FinalColor *= (1.0 - Rim);\n\n    FragColor = vec4(FinalColor, 1.0);\n}\n',
+        Fragment: '#version 300 es\nprecision mediump float;\nin vec3 VNormal;\nin vec3 VWorldPosition;\nin vec3 VLocalPosition;\nuniform vec3 UColor;\nuniform vec3 ULightPosition;\nuniform vec3 UCameraPosition;\nuniform sampler2D UTexture;\nuniform float UOutlineMode;\nuniform vec4 UOutlineColor;\nout vec4 FragColor;\nconst float PI = 3.14159265359;\n\nvoid main() {\n    if (UOutlineMode > 0.5) {\n        FragColor = UOutlineColor;\n        return;\n    }\n\n    vec3 Normal = normalize(VNormal);\n    vec3 Local = normalize(VLocalPosition);\n    vec3 ViewDirection = normalize(UCameraPosition - VWorldPosition);\n    vec3 LightDirection = normalize(ULightPosition - VWorldPosition);\n\n    float U = 0.5 - atan(Local.z, Local.x) / (2.0 * PI);\n    float V = 0.5 - asin(clamp(Local.y, -1.0, 1.0)) / PI;\n    vec4 TexColor = texture(UTexture, vec2(U, V));\n\n    float Wrap = 0.4;\n    float NdotL = max(dot(Normal, LightDirection) + Wrap, 0.0) / (1.0 + Wrap);\n    float Diffuse = 0.58 + 0.42 * NdotL;\n    float Spec = pow(max(dot(Normal, normalize(LightDirection + ViewDirection)), 0.0), 56.0) * 0.14;\n    float Facing = max(dot(Normal, ViewDirection), 0.0);\n    float Rim = pow(1.0 - Facing, 2.2) * 0.14;\n\n    vec3 BaseColor = mix(UColor, TexColor.rgb, TexColor.a * 0.92);\n    vec3 FinalColor = BaseColor * Diffuse + vec3(Spec);\n    FinalColor *= (1.0 - Rim);\n\n    FragColor = vec4(FinalColor, 1.0);\n}\n',
         OutlineVertex: '#version 300 es\nin vec3 APosition;\nuniform mat4 UModel;\nuniform mat4 UView;\nuniform mat4 UProjection;\nuniform float UOutlineScale;\nvoid main() {\n    vec4 ScaledPosition = vec4(APosition * UOutlineScale, 1.0);\n    gl_Position = UProjection * UView * UModel * ScaledPosition;\n}\n',
         OutlineFragment: '#version 300 es\nprecision mediump float;\nuniform vec4 UColor;\nout vec4 FragColor;\nvoid main() { FragColor = UColor; }\n'
     };
@@ -468,7 +467,6 @@ void main() {
     float PrevF = FieldAt(Origin + RayDir * T);
     bool Hit = false;
     vec3 HitP = Origin;
-    // Sphere-trace / binary search ray march against isosurface
     for (int Step = 0; Step < 64; Step++) {
         T += 14.0;
         if (T > TFar) break;
@@ -487,13 +485,11 @@ void main() {
     }
     if (!Hit) discard;
     vec3 N = FieldNormal(HitP);
-    // Flip normal toward camera
     if (dot(N, -RayDir) < 0.0) N = -N;
     vec3 Col = FieldColor(HitP);
     float NdL = 0.55 + 0.45 * max(dot(N, normalize(vec3(0.35, 0.85, 0.4))), 0.0);
     float Fres = pow(1.0 - max(dot(N, -RayDir), 0.0), 2.0) * 0.25;
     vec3 Final = Col * NdL + vec3(Fres);
-    // Soft alpha from field thickness
     float Alpha = 0.72 + 0.2 * clamp((FieldAt(HitP) - UThreshold) * 0.35, 0.0, 1.0);
     FragColor = vec4(Final, Alpha);
 }
@@ -652,7 +648,6 @@ globalThis.Renderer = class {
             Count: this.Gl.getUniformLocation(this.MetaballProgram, "UCount"),
             Threshold: this.Gl.getUniformLocation(this.MetaballProgram, "UThreshold")
         };
-        // Fullscreen triangle
         this.MetaballVbo = this.Gl.createBuffer();
         this.Gl.bindBuffer(this.Gl.ARRAY_BUFFER, this.MetaballVbo);
         this.Gl.bufferData(this.Gl.ARRAY_BUFFER, new Float32Array([
@@ -785,15 +780,24 @@ globalThis.Renderer = class {
     }
 
     Resize() {
-        this.Canvas.width = window.innerWidth;
-        this.Canvas.height = window.innerHeight;
-        this.Gl.viewport(0, 0, this.Canvas.width, this.Canvas.height);
+        const Dpr = Math.min(2.5, Math.max(1, window.devicePixelRatio || 1));
+        const CssW = Math.max(1, window.innerWidth);
+        const CssH = Math.max(1, window.innerHeight);
+        const BufW = Math.floor(CssW * Dpr);
+        const BufH = Math.floor(CssH * Dpr);
+        if (this.Canvas.width !== BufW || this.Canvas.height !== BufH) {
+            this.Canvas.width = BufW;
+            this.Canvas.height = BufH;
+        }
+        this.Canvas.style.width = CssW + "px";
+        this.Canvas.style.height = CssH + "px";
+        this.Gl.viewport(0, 0, BufW, BufH);
+        this.PixelRatio = Dpr;
         if (this.LabelCanvas) {
-            const Dpr = Math.min(2, window.devicePixelRatio || 1);
-            this.LabelCanvas.width = Math.floor(window.innerWidth * Dpr);
-            this.LabelCanvas.height = Math.floor(window.innerHeight * Dpr);
-            this.LabelCanvas.style.width = window.innerWidth + "px";
-            this.LabelCanvas.style.height = window.innerHeight + "px";
+            this.LabelCanvas.width = BufW;
+            this.LabelCanvas.height = BufH;
+            this.LabelCanvas.style.width = CssW + "px";
+            this.LabelCanvas.style.height = CssH + "px";
             this.LabelDpr = Dpr;
         }
     }
@@ -874,7 +878,17 @@ globalThis.Renderer = class {
                     const IsMetallic = !!(Info.Metallic && Metals && Metals.has(AtomA.Key) && Metals.has(AtomB.Key));
                     const WasBonded = this.PreviousBondPairs.has(Key);
                     const ScoreBoost = (IsMetallic && WasBonded) ? 2.5 : (WasBonded ? 1.4 : 1.0);
-                    const Score = Info.stability * StretchFactor * (Info.energy / 400) * ScoreBoost * (0.35 + 0.65 * Affinity);
+                    let Score = Info.stability * StretchFactor * (Info.energy / 400) * ScoreBoost * (0.35 + 0.65 * Affinity);
+                    const Ka = AtomA.Key, Kb = AtomB.Key;
+                    const Halogens = { F:1, Cl:1, Br:1, I:1 };
+                    const HPolar = (Ka === "H" && (Kb === "F" || Kb === "O" || Kb === "N" || Kb === "Cl" || Kb === "Br" || Kb === "I"))
+                        || (Kb === "H" && (Ka === "F" || Ka === "O" || Ka === "N" || Ka === "Cl" || Ka === "Br" || Ka === "I"));
+                    if (HPolar) Score *= 3.2;
+                    if (Ka === Kb && !IsMetallic && (Halogens[Ka] || Ka === "O" || Ka === "N" || Ka === "S")) {
+                        Score *= 0.22;
+                    }
+                    const Qxa = AtomA.ExtraCharge || 0, Qxb = AtomB.ExtraCharge || 0;
+                    if (Qxa * Qxb > 0.15) Score *= 0.05;
                     Pairs.push({
                         AtomA, AtomB, Distance, IndexA, IndexB,
                         EquilibriumDistance, Info, Score, Affinity
@@ -914,8 +928,28 @@ globalThis.Renderer = class {
             const BondType = this.ClassifyBond(AtomA, AtomB, Info, ChargeProduct);
             const IsIonic = BondType === "ionic";
             const IsMetallic = BondType === "metallic";
-            const IsSameCharge = ChargeProduct > Threshold;
-            if (IsSameCharge) return false;
+            const PA = AtomA.PartialCharge || 0;
+            const PB = AtomB.PartialCharge || 0;
+            const EffA = QA + PA * 0.9;
+            const EffB = QB + PB * 0.9;
+            const EffProduct = EffA * EffB;
+            const IsSameCharge = ChargeProduct > Threshold || EffProduct > 0.012;
+            if (IsSameCharge && !Forced) return false;
+            if (!Forced && BondType === "covalent" && AtomA.Key === AtomB.Key) {
+                const KeyEl = AtomA.Key;
+                const StrictMono = (KeyEl === "F" || KeyEl === "Cl" || KeyEl === "Br" || KeyEl === "I" || KeyEl === "H");
+                if (StrictMono) {
+                    const HasHetero = (Atom) => {
+                        for (const K of ValidBondPairs) {
+                            const [Ia, Ib] = K.split("_").map(Number);
+                            const Other = Objects[Ia] === Atom ? Objects[Ib] : (Objects[Ib] === Atom ? Objects[Ia] : null);
+                            if (Other && Other.Key !== Atom.Key) return true;
+                        }
+                        return false;
+                    };
+                    if (HasHetero(AtomA) || HasHetero(AtomB)) return false;
+                }
+            }
 
             const CountA = BondCounts.get(AtomA);
             const CountB = BondCounts.get(AtomB);
@@ -942,9 +976,6 @@ globalThis.Renderer = class {
                 MaxA = MetalMax;
                 MaxB = MetalMax;
             } else {
-                // Atoms already in a forced (sketched/lattice) structure cannot
-                // grow extra spontaneous covalent bonds -- that caused cross-linked
-                // organic blobs (e.g. broken sugars). Metals stay open.
                 const LockA = !MetaA && ForcedOccupied.get(AtomA) > 0;
                 const LockB = !MetaB && ForcedOccupied.get(AtomB) > 0;
                 MaxA = LockA ? CountA : ValA;
@@ -985,14 +1016,12 @@ globalThis.Renderer = class {
                         explosive: Prev.explosive ?? 0.05
                     };
                 } else if (IsMetallic || (Info && Info.Metallic) || (MetaA && MetaB)) {
-                    // Lock lattice spacing from actual placement (prevents FCC collapse/expansion)
                     EqDist = Math.max(12, Distance * 0.98 + (AtomA.EffRadius + AtomB.EffRadius + 22) * 0.02);
                     UseInfo = { energy: 280, stability: 0.96, explosive: 0.01, Metallic: true };
                 } else if (IsIonic || (Info && Info.Ionic)) {
                     EqDist = AtomA.EffRadius + AtomB.EffRadius + 6;
                     UseInfo = { energy: Info.energy || 380, stability: 0.96, explosive: 0.02, Ionic: true };
                 } else {
-                    // Prefer chemically correct bond order for forced organics
                     const SlackA = Math.max(1, ValA - CountA);
                     const SlackB = Math.max(1, ValB - CountB);
                     if (globalThis.Chemistry && globalThis.Chemistry.ProposeBondOrder) {
@@ -1029,7 +1058,6 @@ globalThis.Renderer = class {
                 ApplyOrdered(Proposed);
             }
 
-            // Final valence gate using intended order cost (skip for forced metals)
             const CostPreview = (IsHydrogen ? 0 : Order);
             if (!Forced || !(MetaA || MetaB || IsMetallic)) {
                 if (CountA + CostPreview > MaxA || CountB + CostPreview > MaxB) {
@@ -1063,7 +1091,6 @@ globalThis.Renderer = class {
             else if (WasBonded) {
                 FormMul = 1.28 + Stab * 0.85 + EnergyNorm * 0.35 + this.Temperature * 0.12 + Math.min(0.3, PrevAge * 0.004);
             } else {
-                // Harder for brand-new spontaneous covalent bonds to form at long range
                 FormMul = 1.04 + Stab * 0.22 + EnergyNorm * 0.1;
             }
 
@@ -1342,7 +1369,6 @@ globalThis.Renderer = class {
                 B.Position[1] -= Uy * CorrB;
                 B.Position[2] -= Uz * CorrB;
 
-                // Damp relative velocity along the bond (negative lambda kills stretch bounce)
                 const RelV = (B.Velocity[0] - A.Velocity[0]) * Ux
                     + (B.Velocity[1] - A.Velocity[1]) * Uy
                     + (B.Velocity[2] - A.Velocity[2]) * Uz;
@@ -1355,7 +1381,6 @@ globalThis.Renderer = class {
                 B.Velocity[1] -= Uy * VCorr * InvMassB;
                 B.Velocity[2] -= Uz * VCorr * InvMassB;
 
-                // Kill residual tangential jitter on forced metal links
                 if (Data.Forced || BondType === "metallic") {
                     const TangDamp = 0.12;
                     A.Velocity[0] *= (1 - TangDamp); A.Velocity[1] *= (1 - TangDamp); A.Velocity[2] *= (1 - TangDamp);
@@ -1383,8 +1408,6 @@ globalThis.Renderer = class {
                 const AtomB = Objects[IndexB];
                 const Metals = globalThis.Metals;
                 const BothMetal = Metals && Metals.has(AtomA.Key) && Metals.has(AtomB.Key);
-                // Metal lattices are held by forced bonds; long-range VdW attraction
-                // collapses FCC/BCC toward the center.
                 if (BothMetal) return;
                 const Dx = AtomB.Position[0] - Ax;
                 const Dy = AtomB.Position[1] - Ay;
@@ -1602,7 +1625,6 @@ globalThis.Renderer = class {
 
         const TimeStep = 0.008 * this.TimeScale;
         const Friction = Math.max(0, Math.min(1, this.Friction ?? 0.45));
-        // Higher friction -> stronger velocity decay (tighter, calmer simulation)
         const DampBase = 0.992 - Friction * 0.045 - this.Temperature * 0.008;
         const Damping = Math.pow(Math.max(0.92, Math.min(0.995, DampBase)), Math.max(0.25, this.TimeScale));
 
@@ -1621,6 +1643,7 @@ globalThis.Renderer = class {
         if (RebuildNow) {
             this.BondsFrameCounter = 0;
             this.BondsDirty = false;
+            this.ComputePartialCharges();
             this.ActiveBonds = this.GenerateBonds();
 
             let TotalReleased = 0;
@@ -1774,7 +1797,6 @@ globalThis.Renderer = class {
                         if (Data.Forced) SpringStiffness *= 1.35;
                     }
                     else {
-                        // Covalent: stronger springs so organic molecules keep shape
                         SpringStiffness = (7.5 + (EnergyCap / 400) * 9.0) * Math.max(0.45, Stability) * OrderBoost;
                         if (Data.Forced) SpringStiffness *= 1.55;
                     }
@@ -1801,6 +1823,18 @@ globalThis.Renderer = class {
                         : 1.0;
                     ForceMagnitude = SpringStiffness * ColdBoost * Displacement - InstabilityRepulsion;
 
+                    const QAe = (AtomA.ExtraCharge || 0) + (AtomA.PartialCharge || 0) * 0.9;
+                    const QBe = (AtomB.ExtraCharge || 0) + (AtomB.PartialCharge || 0) * 0.9;
+                    const QProd = QAe * QBe;
+                    if (Math.abs(QProd) > 0.004) {
+                        const Soft = 280;
+                        const Coulomb = (95000 * QProd) / (D2 + Soft);
+                        ForceMagnitude -= Math.max(-160, Math.min(160, Coulomb));
+                        if (QProd > 0.02 && BondType !== "metallic") {
+                            ForceMagnitude = Math.min(ForceMagnitude, -Math.abs(Coulomb) * 0.5);
+                        }
+                    }
+
                     if (Distance < SafeEq * 0.72) {
                         ForceMagnitude -= 35.0 * (SafeEq * 0.72 - Distance);
                     }
@@ -1815,26 +1849,29 @@ globalThis.Renderer = class {
 
                     if (!isFinite(ForceMagnitude)) ForceMagnitude = 0;
                 } else {
-                    const QAi = AtomA.ExtraCharge || 0;
-                    const QBi = AtomB.ExtraCharge || 0;
+                    const QAi = (AtomA.ExtraCharge || 0) + (AtomA.PartialCharge || 0) * 0.9;
+                    const QBi = (AtomB.ExtraCharge || 0) + (AtomB.PartialCharge || 0) * 0.9;
                     const ChargeProduct = QAi * QBi;
-                    const IsIonicPair = ChargeProduct < -this.IonicChargeThreshold;
                     const CoreRange = Math.max(15, (RA + AtomB.EffRadius) * 0.72);
 
                     if (Distance < CoreRange) {
                         const Overlap = CoreRange - Distance;
                         ForceMagnitude = -40.0 * Overlap;
-                    } else if (IsIonicPair) {
-                        const K = 180000, Soft = 400;
+                    }
+                    if (Math.abs(ChargeProduct) > 0.002) {
+                        const K = 160000, Soft = 320;
                         const Coulomb = (K * ChargeProduct) / (D2 + Soft);
-                        ForceMagnitude = Math.max(-120, Math.min(120, Coulomb));
+                        const Capped = Math.max(-140, Math.min(140, Coulomb));
+                        ForceMagnitude -= Capped;
                     } else if (AtomA.Noble || AtomB.Noble) {
                         const PauliR = (RA + AtomB.EffRadius) * 0.9 + 14;
                         if (Distance < PauliR) {
                             const Overlap = PauliR - Distance;
                             ForceMagnitude = -45.0 * Overlap;
-                        } else return;
-                    } else return;
+                        } else if (Math.abs(ForceMagnitude) < 1e-6) return;
+                    } else if (Math.abs(ForceMagnitude) < 1e-6) {
+                        return;
+                    }
                 }
 
                 if (ForceMagnitude > 180) ForceMagnitude = 180;
@@ -1898,7 +1935,6 @@ globalThis.Renderer = class {
             if (Obj.Noble) Scale *= 0.55;
             const MetalCoord = Obj.BondOrderSum || 0;
             if (globalThis.Metals && globalThis.Metals.has(Obj.Key) && MetalCoord >= 2) {
-                // Highly coordinated lattice sites stay nearly silent
                 Scale *= Math.max(0.01, 1 - Math.min(1, MetalCoord / 6) * 0.99);
                 if (MetalCoord >= 4) Scale *= 0.15;
                 if ((this.SettleFrames || 0) > 0) Scale *= 0.05;
@@ -1974,7 +2010,6 @@ globalThis.Renderer = class {
                 if ((this.SettleFrames || 0) > 0) MetalDamp *= 0.85;
                 if (this.Temperature < 0.25) MetalDamp *= 0.96;
                 Nvx *= MetalDamp; Nvy *= MetalDamp; Nvz *= MetalDamp;
-                // Snap near-zero residual so lattices stop micro-jittering
                 if (Math.hypot(Nvx, Nvy, Nvz) < 0.08) { Nvx = 0; Nvy = 0; Nvz = 0; }
             }
 
@@ -2110,7 +2145,6 @@ globalThis.Renderer = class {
         if (this.SettleFrames > 0) this.SettleFrames--;
     }
 
-
     SetOutlineMode(On, Color = null, Scale = 1.0) {
         const Gl = this.Gl;
         const U = this.UniformLocations;
@@ -2149,7 +2183,7 @@ globalThis.Renderer = class {
 
     DrawObject(Object, ViewMatrix, ProjectionMatrix) {
         const Gl = this.Gl;
-        const SphereScale = Object.BaseScale;
+        const SphereScale = Object.BaseScale || 12;
         const Sx = Object.Shake?.[0] || 0;
         const Sy = Object.Shake?.[1] || 0;
         const Sz = Object.Shake?.[2] || 0;
@@ -2179,7 +2213,6 @@ globalThis.Renderer = class {
         }
 
         if (this.DisplayMode === "charge") {
-            // Electronegativity colormap: low EN (delta+) blue -> cyan -> yellow -> red high EN (delta-)
             const En = Object.Atom.Electronegativity;
             if (En != null && isFinite(En)) {
                 const T = Math.max(0, Math.min(1, (En - 0.7) / (4.0 - 0.7)));
@@ -2200,16 +2233,6 @@ globalThis.Renderer = class {
                     Cb = Cb * (1 - T) + 1.0 * T;
                 }
             }
-        }
-
-        if (this.DisplayMode === "quantum") {
-            const Sat = Object.BondSatisfaction || 0;
-            const Shells = Object.QuantumShells || [];
-            const Val = Shells.length > 0 ? Shells[Shells.length - 1] : null;
-            const Fill = Val ? Val.fraction : 0;
-            Cr = Cr * 0.65 + (Object.Noble ? 0.9 : 0.4 + 0.6 * Fill) * 0.35;
-            Cg = Cg * 0.65 + (Object.Noble ? 1.0 : 0.5 + 0.5 * Sat) * 0.35;
-            Cb = Cb * 0.65 + (Object.Noble ? 1.0 : 0.7 + 0.3 * Fill) * 0.35;
         }
 
         if (Object.Excited && Object.Excited > 0) {
@@ -2236,7 +2259,7 @@ globalThis.Renderer = class {
         const Gl = this.Gl;
         Gl.useProgram(this.Program);
         this.LastProgram = "main";
-        const SphereScale = Object.BaseScale;
+        const SphereScale = Object.BaseScale || 12;
         const Sx = Object.Shake?.[0] || 0;
         const Sy = Object.Shake?.[1] || 0;
         const Sz = Object.Shake?.[2] || 0;
@@ -2426,27 +2449,9 @@ globalThis.Renderer = class {
         }
     }
 
-    PushOrbitalShell(Out, Pos, R, Segments, Tilt) {
-        const [Cx, Cy, Cz] = Pos;
-        const CosT = Math.cos(Tilt), SinT = Math.sin(Tilt);
-        for (let i = 0; i < Segments; i++) {
-            const A0 = (i / Segments) * Math.PI * 2;
-            const A1 = ((i + 1) / Segments) * Math.PI * 2;
-            const X0 = Math.cos(A0) * R, Y0 = Math.sin(A0) * R;
-            const X1 = Math.cos(A1) * R, Y1 = Math.sin(A1) * R;
-            const Y0r = Y0 * CosT, Z0r = Y0 * SinT;
-            const Y1r = Y1 * CosT, Z1r = Y1 * SinT;
-            Out.push(Cx + X0, Cy + Y0r, Cz + Z0r, Cx + X1, Cy + Y1r, Cz + Z1r);
-        }
-    }
-
     DrawDisplayOverlays(ViewMatrix, ProjectionMatrix) {
         if (this.DisplayMode === "none") return;
         this.ComputePartialCharges();
-
-        if (this.DisplayMode === "charge") {
-            // Screen-space electronegativity metaballs drawn in DrawChargeMetaballs
-        }
 
         if (this.DisplayMode === "dipole") {
             const Lines = [];
@@ -2605,67 +2610,6 @@ globalThis.Renderer = class {
                 this.PushSphereShell(Rings, Obj.Position, R, 12);
             }
             if (Rings.length) this.DrawLines(Rings, ViewMatrix, ProjectionMatrix, [1.0, 0.3, 0.9, 0.75], 1.5);
-        }
-
-        if (this.DisplayMode === "quantum") {
-            const Time = performance.now() * 0.0015;
-            const ShellColors = [
-                [1.00,0.30,0.30],[1.00,0.60,0.20],[1.00,0.90,0.30],
-                [0.40,0.90,0.40],[0.30,0.60,1.00],[0.60,0.40,1.00],[1.00,0.40,0.90]
-            ];
-            const Buckets = ShellColors.map(() => []);
-            const ValBuckets = ShellColors.map(() => []);
-
-            for (const Obj of Objects) {
-                const Shells = Obj.QuantumShells;
-                if (!Shells || Shells.length === 0) continue;
-                const BS = Obj.BaseScale;
-                for (let i = 0; i < Shells.length; i++) {
-                    const S = Shells[i];
-                    const Idx = Math.min(ShellColors.length - 1, i);
-                    const R = BS * (1.25 + i * 0.55) * (1 + Math.sin(Time * 1.7 + i * 1.3 + Obj.Protons) * 0.02);
-                    const Segs = S.valence ? 22 : 14;
-                    this.PushSphereShell(Buckets[Idx], Obj.Position, R, Segs);
-                    if (S.valence) this.PushSphereShell(ValBuckets[Idx], Obj.Position, R * 1.06, Segs);
-                }
-                if (Obj.Noble) {
-                    const NR = BS * (1.25 + Shells.length * 0.55) * (1 + Math.sin(Time * 2 + Obj.Protons) * 0.04);
-                    this.PushSphereShell(ValBuckets[6], Obj.Position, NR, 24);
-                }
-                const Sat = Obj.BondSatisfaction || 0;
-                if (Sat < 0.2 && !Obj.Noble && Obj.ElectronWant > 0.55) {
-                    const GR = BS * (1.6 + 0.25 * (1 - Sat));
-                    for (let k = 0; k < 6; k++) {
-                        const Angle = Time * 2 + k * (Math.PI * 2 / 6);
-                        this.PushSphereShell(
-                            ValBuckets[5],
-                            [
-                                Obj.Position[0] + Math.cos(Angle) * GR * 0.7,
-                                Obj.Position[1] + Math.sin(Angle) * GR * 0.7,
-                                Obj.Position[2] + Math.sin(Angle * 0.5) * GR * 0.5
-                            ],
-                            3.5, 12
-                        );
-                    }
-                }
-                if (!Obj.Stable) {
-                    const RR = BS * (1.9 + 0.15 * Math.sin(Time * 3 + Obj.Protons));
-                    this.PushOrbitalShell(ValBuckets[6], Obj.Position, RR, 16, Time);
-                }
-            }
-
-            for (let i = 0; i < Buckets.length; i++) {
-                if (Buckets[i].length) {
-                    const C = ShellColors[i];
-                    this.DrawLines(Buckets[i], ViewMatrix, ProjectionMatrix, [C[0], C[1], C[2], i === 0 ? 0.55 : 0.42], 1.4);
-                }
-            }
-            for (let i = 0; i < ValBuckets.length; i++) {
-                if (ValBuckets[i].length) {
-                    const C = ShellColors[i];
-                    this.DrawLines(ValBuckets[i], ViewMatrix, ProjectionMatrix, [C[0], C[1], C[2], i >= 4 ? 0.85 : 0.75], 2.0);
-                }
-            }
         }
     }
 
@@ -2858,10 +2802,8 @@ globalThis.Renderer = class {
         this.DrawLines([0, 0, -AxisLenZ, 0, 0, 0], ViewMatrix, ProjectionMatrix, [0.3, 0.5, 1.0, 0.35], 1.0);
     }
 
-
     ProjectWorldToScreen(X, Y, Z, ViewMatrix, ProjectionMatrix) {
         const MVP = MultiplyMatrices(ProjectionMatrix, ViewMatrix);
-        // column-major multiply point
         const W0 = MVP[0]*X + MVP[4]*Y + MVP[8]*Z + MVP[12];
         const W1 = MVP[1]*X + MVP[5]*Y + MVP[9]*Z + MVP[13];
         const W2 = MVP[2]*X + MVP[6]*Y + MVP[10]*Z + MVP[14];
@@ -2880,9 +2822,7 @@ globalThis.Renderer = class {
         };
     }
 
-
     ElectronegativityColor(T) {
-        // T 0..1 : blue -> cyan -> green -> yellow -> orange -> red
         const Stops = [
             [0.15, 0.35, 1.00],
             [0.15, 0.85, 0.95],
@@ -2925,25 +2865,22 @@ globalThis.Renderer = class {
         const Count = (AtomData.length / 4) | 0;
         if (Count === 0) return;
 
-        // Camera basis from LookAt
         const Eye = this.CameraPosition;
         const Target = this.CameraTarget;
         const Forward = Normalize3(Subtract3(Target, Eye));
         const Right = Normalize3(Cross3(Forward, [0, 1, 0]));
         const Up = Normalize3(Cross3(Right, Forward));
-        // if degenerate up
         let UpUse = Up, RightUse = Right;
         if (Math.hypot(Up[0], Up[1], Up[2]) < 0.1) {
             RightUse = Normalize3(Cross3(Forward, [1, 0, 0]));
             UpUse = Normalize3(Cross3(RightUse, Forward));
         }
         const Aspect = this.Canvas.width / Math.max(1, this.Canvas.height);
-        const TanHalf = Math.tan(Math.PI / 8); // matches Perspective(PI/4)
+        const TanHalf = Math.tan(Math.PI / 8);
 
         Gl.enable(Gl.BLEND);
         Gl.blendFunc(Gl.SRC_ALPHA, Gl.ONE_MINUS_SRC_ALPHA);
         Gl.depthMask(false);
-        // Raymarch writes depth optionally - keep transparent overlay without fighting spheres much
         Gl.disable(Gl.DEPTH_TEST);
 
         Gl.useProgram(this.MetaballProgram);
@@ -2960,7 +2897,6 @@ globalThis.Renderer = class {
         Gl.uniform1i(this.MetaballLocations.Count, Count);
         Gl.uniform1f(this.MetaballLocations.Threshold, 1.15);
 
-        // Upload atom arrays
         for (let i = 0; i < Count; i++) {
             const Loc = Gl.getUniformLocation(this.MetaballProgram, `UAtoms[${i}]`);
             if (Loc) Gl.uniform4f(Loc, AtomData[i*4], AtomData[i*4+1], AtomData[i*4+2], AtomData[i*4+3]);
@@ -2989,8 +2925,7 @@ globalThis.Renderer = class {
         if (Mode !== "none" && Mode !== "charge") return;
 
         Ctx.textAlign = "left";
-        Ctx.textBaseline = "bottom";
-        Ctx.font = "600 12px Cascadia Mono, ui-monospace, monospace";
+        Ctx.textBaseline = "alphabetic";
 
         const Labels = [];
         for (let I = 0; I < Objects.length; I++) {
@@ -3014,33 +2949,45 @@ globalThis.Renderer = class {
                 ViewMatrix, ProjectionMatrix
             );
             if (!Screen) continue;
-            // Offset to top-right of the atom disc
             const RadiusPx = Math.max(10, (Obj.EffRadius || 20) * 0.35);
             Labels.push({
                 X: Screen.X + RadiusPx * 0.55,
                 Y: Screen.Y - RadiusPx * 0.55,
                 Z: Screen.Z,
-                Q: IsPartial ? Q : Q,
-                Partial: IsPartial
+                Q,
+                Partial: IsPartial,
+                Key: Obj.Key || "?",
+                Hovered: Obj === this.HoveredObject || Obj === this.SelectedObject
             });
         }
         Labels.sort((A, B) => A.Z - B.Z);
 
         for (const L of Labels) {
-            const Text = L.Partial
-                ? (L.Q > 0 ? "δ+" : "δ-")
-                : (L.Q > 0 ? ("(+" + L.Q + ")") : ("(" + L.Q + ")"));
-            // anode (+): blue, cathode (-): red
-            if (L.Q > 0) {
-                Ctx.fillStyle = "rgba(80, 160, 255, 0.98)";
-                Ctx.strokeStyle = "rgba(10, 40, 90, 0.75)";
+            if (L.Partial) {
+                const Sign = L.Q > 0 ? "+" : "-";
+                const Main = Sign + "\u03b4";
+                const Sub = String(L.Key);
+                const Alpha = L.Hovered ? 1.0 : 0.25;
+                Ctx.fillStyle = L.Q > 0 ? `rgba(80, 160, 255, ${Alpha})` : `rgba(255, 90, 90, ${Alpha})`;
+                Ctx.strokeStyle = L.Q > 0 ? `rgba(10, 40, 90, ${Alpha * 0.75})` : `rgba(80, 10, 10, ${Alpha * 0.75})`;
+                Ctx.lineWidth = 2.5;
+                Ctx.font = "600 12px Cascadia Mono, ui-monospace, monospace";
+                Ctx.strokeText(Main, L.X, L.Y);
+                Ctx.fillText(Main, L.X, L.Y);
+                const MainW = Ctx.measureText(Main).width;
+                Ctx.font = "600 9px Cascadia Mono, ui-monospace, monospace";
+                Ctx.strokeText(Sub, L.X + MainW + 1, L.Y + 3);
+                Ctx.fillText(Sub, L.X + MainW + 1, L.Y + 3);
             } else {
-                Ctx.fillStyle = "rgba(255, 90, 90, 0.98)";
-                Ctx.strokeStyle = "rgba(80, 10, 10, 0.75)";
+                const Text = L.Q > 0 ? ("(+" + L.Q + ")") : ("(" + L.Q + ")");
+                const Alpha = L.Hovered ? 1.0 : 0.25;
+                Ctx.fillStyle = L.Q > 0 ? `rgba(80, 160, 255, ${Alpha})` : `rgba(255, 90, 90, ${Alpha})`;
+                Ctx.strokeStyle = L.Q > 0 ? `rgba(10, 40, 90, ${Alpha * 0.75})` : `rgba(80, 10, 10, ${Alpha * 0.75})`;
+                Ctx.lineWidth = 2.5;
+                Ctx.font = "600 12px Cascadia Mono, ui-monospace, monospace";
+                Ctx.strokeText(Text, L.X, L.Y);
+                Ctx.fillText(Text, L.X, L.Y);
             }
-            Ctx.lineWidth = 3;
-            Ctx.strokeText(Text, L.X, L.Y);
-            Ctx.fillText(Text, L.X, L.Y);
         }
     }
 
@@ -3057,7 +3004,6 @@ globalThis.Renderer = class {
         this.DrawBoundaries(VM, PM);
         this.DrawBonds(VM, PM);
         if (this.DisplayMode !== "none") this.DrawDisplayOverlays(VM, PM);
-        // Ion charge tags are drawn after 3D pass so they stay readable
 
         if (this.SelectedObject) {
             const MolAtoms = this.GetMoleculeAtoms(this.SelectedObject);
@@ -3106,14 +3052,3 @@ globalThis.Renderer = class {
         this.DrawIonLabels(VM, PM);
     }
 };
-
-{
-    const Modes = document.querySelector(".DisplayModes");
-    if (Modes && !Modes.querySelector('button[data-mode="quantum"]')) {
-        const Btn = document.createElement("button");
-        Btn.className = "ModeBtn";
-        Btn.dataset.mode = "quantum";
-        Btn.textContent = "Quantum";
-        Modes.appendChild(Btn);
-    }
-}

@@ -13,7 +13,131 @@ const DeltaTimeLabel = document.querySelector(".DeltaTime");
 const TimeScaleLabel = document.querySelector(".TimeScale");
 const TemperatureLabel = document.querySelector(".Temperature");
 const BathTempLabel = document.querySelector(".BathTemp");
-const BoundsSizeLabel = document.querySelector(".BoundsSize");
+const FrictionValLabel = document.querySelector(".FrictionVal");
+
+let DisplayFpsMax = 240;
+let DisplayFpsReady = false;
+
+function DetectDisplayFpsMax() {
+    if (DisplayFpsReady) return DisplayFpsMax;
+    try {
+        if (typeof window.screen !== "undefined" && window.screen.refreshRate && window.screen.refreshRate > 1) {
+            DisplayFpsMax = Math.max(30, Math.min(360, Math.round(window.screen.refreshRate)));
+            DisplayFpsReady = true;
+            return DisplayFpsMax;
+        }
+    } catch (Err) {}
+
+    // Measure via rAF intervals (best-effort)
+    let Samples = [];
+    let Last = performance.now();
+    let Count = 0;
+    const Sample = (Now) => {
+        const Dt = Now - Last;
+        Last = Now;
+        if (Dt > 0.5 && Dt < 50) Samples.push(1000 / Dt);
+        Count++;
+        if (Count < 45) {
+            requestAnimationFrame(Sample);
+            return;
+        }
+        if (Samples.length) {
+            Samples.sort((A, B) => A - B);
+            const Mid = Samples[Math.floor(Samples.length * 0.5)];
+            // Snap to common rates
+            const Common = [60, 75, 90, 100, 120, 144, 165, 180, 200, 240, 360];
+            let Best = 60, BestD = Infinity;
+            for (const C of Common) {
+                const D = Math.abs(C - Mid);
+                if (D < BestD) { BestD = D; Best = C; }
+            }
+            if (BestD < 18) DisplayFpsMax = Best;
+            else DisplayFpsMax = Math.max(60, Math.min(240, Math.round(Mid / 5) * 5));
+        } else {
+            DisplayFpsMax = 240;
+        }
+        DisplayFpsReady = true;
+    };
+    requestAnimationFrame(Sample);
+    return DisplayFpsMax;
+}
+DetectDisplayFpsMax();
+
+function SetStatBar(Name, Ratio) {
+    const Row = document.querySelector(`.StatRow[data-stat="${Name}"]`);
+    if (!Row) return;
+    const Fill = Row.querySelector(".StatBarFill");
+    if (!Fill) return;
+    const T = Math.max(0, Math.min(1, Ratio));
+    Fill.style.width = `${(T * 100).toFixed(2)}%`;
+    // Smooth color via CSS custom property (0–1), no discrete level jumps
+    Fill.style.setProperty("--bar-t", T.toFixed(4));
+}
+
+function ApplyStatControl(Name, Ratio) {
+    if (!CanvasRenderer) return;
+    const T = Math.max(0, Math.min(1, Ratio));
+    if (Name === "timescale") {
+        const V = Math.round((T * 2) / 0.05) * 0.05;
+        CanvasRenderer.TargetTimeScale = Number(V.toFixed(2));
+        if (V <= 0) CanvasRenderer.TimeScale = 0;
+        if (TimeScaleLabel) TimeScaleLabel.textContent = V <= 0 ? "paused" : `${V.toFixed(2)}×`;
+        SetStatBar("timescale", V / 2);
+    } else if (Name === "bath") {
+        const V = Math.round((T * 2) / 0.05) * 0.05;
+        CanvasRenderer.Temperature = Number(V.toFixed(2));
+        if (BathTempLabel) BathTempLabel.textContent = V.toFixed(2);
+        SetStatBar("bath", V / 2);
+    } else if (Name === "friction") {
+        const V = Math.round(T / 0.05) * 0.05;
+        CanvasRenderer.Friction = Number(Math.max(0, Math.min(1, V)).toFixed(2));
+        if (FrictionValLabel) FrictionValLabel.textContent = CanvasRenderer.Friction.toFixed(2);
+        SetStatBar("friction", CanvasRenderer.Friction);
+    }
+}
+
+function WireStatBars() {
+    document.querySelectorAll(".StatRow.StatInteractive").forEach((Row) => {
+        const Bar = Row.querySelector(".StatBar");
+        if (!Bar) return;
+        let Dragging = false;
+
+        const FromEvent = (Event) => {
+            const Rect = Bar.getBoundingClientRect();
+            const X = (Event.clientX - Rect.left) / Math.max(1, Rect.width);
+            ApplyStatControl(Row.dataset.stat, X);
+        };
+
+        Bar.addEventListener("pointerdown", (Event) => {
+            Dragging = true;
+            Bar.setPointerCapture?.(Event.pointerId);
+            FromEvent(Event);
+            Event.preventDefault();
+            Event.stopPropagation();
+        });
+        Bar.addEventListener("pointermove", (Event) => {
+            if (!Dragging) return;
+            FromEvent(Event);
+            Event.preventDefault();
+        });
+        const End = (Event) => {
+            if (!Dragging) return;
+            Dragging = false;
+            try { Bar.releasePointerCapture?.(Event.pointerId); } catch (Err) {}
+        };
+        Bar.addEventListener("pointerup", End);
+        Bar.addEventListener("pointercancel", End);
+        // Click-anywhere on row also works
+        Row.addEventListener("pointerdown", (Event) => {
+            if (Event.target.closest(".StatBar")) return;
+            // ignore pure label clicks unless on bar area - optional
+        });
+    });
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", WireStatBars);
+else WireStatBars();
+
+
 const Tooltip = document.querySelector(".Tooltip");
 const ContextMenu = document.getElementById("ContextMenu");
 let ContextTarget = null;
@@ -150,6 +274,51 @@ const DisplayItems = DisplayMenu ? [...DisplayMenu.querySelectorAll(".DropdownIt
 
 if (DisplayMenu) document.body.appendChild(DisplayMenu);
 
+const ModelSubHost = document.getElementById("ModelSubMenu");
+const ModelSubTrigger = ModelSubHost ? ModelSubHost.querySelector(".DropdownSubTrigger") : null;
+let ModelSubMenu = ModelSubHost ? ModelSubHost.querySelector(".DropdownSubMenu") : null;
+if (ModelSubMenu && ModelSubMenu.parentElement !== document.body) {
+    document.body.appendChild(ModelSubMenu);
+    ModelSubMenu.classList.add("ModelFlyout");
+}
+
+function CloseModelSubMenu() {
+    if (ModelSubMenu) ModelSubMenu.hidden = true;
+}
+
+function PositionModelSubMenu() {
+    if (!ModelSubMenu || !ModelSubTrigger || ModelSubMenu.hidden) return;
+    const Rect = ModelSubTrigger.getBoundingClientRect();
+    const Margin = 8;
+    const MenuW = Math.max(180, ModelSubMenu.offsetWidth || 180);
+    const MenuH = ModelSubMenu.scrollHeight || 220;
+    let Left = Rect.right + 4;
+    if (Left + MenuW > window.innerWidth - Margin) {
+        Left = Math.max(Margin, Rect.left - MenuW - 4);
+    }
+    let Top = Rect.top;
+    if (Top + MenuH > window.innerHeight - Margin) {
+        Top = Math.max(Margin, window.innerHeight - MenuH - Margin);
+    }
+    ModelSubMenu.style.position = "fixed";
+    ModelSubMenu.style.left = `${Left}px`;
+    ModelSubMenu.style.top = `${Top}px`;
+    ModelSubMenu.style.zIndex = "10001";
+    ModelSubMenu.style.minWidth = "180px";
+}
+
+function OpenModelSubMenu() {
+    if (!ModelSubMenu) return;
+    ModelSubMenu.hidden = false;
+    PositionModelSubMenu();
+}
+
+window.addEventListener("resize", () => {
+    PositionDisplayMenu();
+    PositionModelSubMenu();
+}, { passive: true });
+
+
 function PositionDisplayMenu() {
     if (!DisplayMenu || !DisplayButton || DisplayMenu.hidden) return;
     const Rect = DisplayButton.getBoundingClientRect();
@@ -184,15 +353,61 @@ function CloseDisplayMenu() {
     if (!DisplayMenu || !DisplayButton) return;
     DisplayMenu.hidden = true;
     DisplayButton.setAttribute("aria-expanded", "false");
+    CloseModelSubMenu();
 }
 
-function SetDisplayMode(Mode) {
-    if (CanvasRenderer) CanvasRenderer.DisplayMode = Mode;
-    for (const Item of DisplayItems) {
-        const Active = Item.dataset.mode === Mode;
+const ModelLabels = {
+    ballstick: "Ball-and-Stick",
+    spacefill: "Space-Filling",
+    wireframe: "Wireframe",
+    tube: "Tube / Licorice",
+    ribbon: "Ribbon / Cartoon",
+    polyhedral: "Polyhedral"
+};
+
+function SetModelStyle(Style) {
+    if (!Style) Style = "ballstick";
+    if (CanvasRenderer) CanvasRenderer.ModelStyle = Style;
+    document.querySelectorAll("#DisplayDropdownMenu .ModelItem").forEach((Item) => {
+        const Active = Item.dataset.model === Style;
         Item.classList.toggle("active", Active);
         Item.setAttribute("aria-selected", Active ? "true" : "false");
-        if (Active && DisplayLabel) DisplayLabel.textContent = Item.textContent.trim();
+    });
+}
+
+function SetDisplayMode(Mode, ModelStyle) {
+    if (CanvasRenderer) {
+        if (Mode === "model") {
+            // Keep overlay mode none while applying a geometry model
+            CanvasRenderer.DisplayMode = "none";
+            if (ModelStyle) CanvasRenderer.ModelStyle = ModelStyle;
+            else if (!CanvasRenderer.ModelStyle) CanvasRenderer.ModelStyle = "ballstick";
+        } else {
+            CanvasRenderer.DisplayMode = Mode;
+        }
+    }
+    const ModelItems = [...document.querySelectorAll("#DisplayDropdownMenu .ModelItem")];
+    const FlatItems = DisplayItems.filter((I) => !I.classList.contains("ModelItem") && !I.classList.contains("DropdownSubTrigger"));
+    for (const Item of FlatItems) {
+        const Active = Item.dataset.mode === Mode && Mode !== "model";
+        Item.classList.toggle("active", Active);
+        Item.setAttribute("aria-selected", Active ? "true" : "false");
+    }
+    if (Mode === "model" || ModelStyle) {
+        const Style = ModelStyle || (CanvasRenderer && CanvasRenderer.ModelStyle) || "ballstick";
+        SetModelStyle(Style);
+        for (const Item of FlatItems) Item.classList.remove("active");
+        const Trig = document.querySelector(".DropdownSubTrigger");
+        if (Trig) Trig.classList.add("active");
+        if (DisplayLabel) DisplayLabel.textContent = ModelLabels[Style] || "Model";
+    } else {
+        const Trig = document.querySelector(".DropdownSubTrigger");
+        if (Trig) Trig.classList.remove("active");
+        const Active = FlatItems.find((I) => I.dataset.mode === Mode);
+        if (Active && DisplayLabel) {
+            const Span = Active.querySelector("span:last-child");
+            DisplayLabel.textContent = Span ? Span.textContent.trim() : Mode;
+        }
     }
 }
 
@@ -232,9 +447,41 @@ if (DisplayButton && DisplayMenu) {
     for (const Item of DisplayItems) {
         Item.addEventListener("click", (Event) => {
             Event.stopPropagation();
+            if (Item.classList.contains("DropdownSubTrigger")) {
+                const Sub = document.querySelector("#ModelSubMenu .DropdownSubMenu");
+                if (Sub) Sub.hidden = !Sub.hidden;
+                return;
+            }
+            if (Item.classList.contains("ModelItem")) {
+                SetDisplayMode("model", Item.dataset.model);
+                CloseDisplayMenu();
+                DisplayButton.focus({ preventScroll: true });
+                return;
+            }
             SetDisplayMode(Item.dataset.mode);
             CloseDisplayMenu();
             DisplayButton.focus({ preventScroll: true });
+        });
+    }
+
+    if (ModelSubTrigger && ModelSubMenu) {
+        let HoverTimer = null;
+        const CancelClose = () => { if (HoverTimer) { clearTimeout(HoverTimer); HoverTimer = null; } };
+        const ScheduleClose = () => {
+            CancelClose();
+            HoverTimer = setTimeout(() => CloseModelSubMenu(), 180);
+        };
+        ModelSubTrigger.addEventListener("pointerenter", () => {
+            CancelClose();
+            OpenModelSubMenu();
+        });
+        ModelSubTrigger.addEventListener("pointerleave", ScheduleClose);
+        ModelSubMenu.addEventListener("pointerenter", CancelClose);
+        ModelSubMenu.addEventListener("pointerleave", ScheduleClose);
+        ModelSubTrigger.addEventListener("click", (Event) => {
+            Event.stopPropagation();
+            if (ModelSubMenu.hidden) OpenModelSubMenu();
+            else CloseModelSubMenu();
         });
     }
 
@@ -248,6 +495,7 @@ if (DisplayButton && DisplayMenu) {
     if (ScrollParent) ScrollParent.addEventListener("scroll", CloseDisplayMenu, { passive: true });
 
     SetDisplayMode("none");
+    SetModelStyle("ballstick");
 }
 
 function HideContextMenu() {
@@ -578,7 +826,9 @@ if (ContextMenu) {
 }
 
 window.addEventListener("wheel", (Event) => {
-    if (Event.target && Event.target.closest && Event.target.closest(".Area, .DropdownMenu, .PluginWidget, .ContextMenu")) return;
+    if (Event.target && Event.target.closest && Event.target.closest(
+        ".Area, .DropdownMenu, .PluginWidget, .ContextMenu, .SettingsPanel, .SpawnMenu, .PluginDockMenu, .SceneList, .SceneCommentsFull, input, textarea, select"
+    )) return;
     Event.preventDefault();
     if (Event.ctrlKey) {
         if (!CanvasRenderer) return;
@@ -594,10 +844,8 @@ window.addEventListener("wheel", (Event) => {
         let NextTemp = Math.round((CanvasRenderer.Temperature + Delta) / Snap) * Snap;
         NextTemp = Math.max(0.0, Math.min(2.0, NextTemp));
         CanvasRenderer.Temperature = Number(NextTemp.toFixed(2));
-        const BathEl = document.getElementById("PrefBath");
-        const BathVal = document.getElementById("PrefBathVal");
-        if (BathEl) BathEl.value = String(NextTemp);
-        if (BathVal) BathVal.textContent = NextTemp.toFixed(2);
+        if (BathTempLabel) BathTempLabel.textContent = NextTemp.toFixed(2);
+        SetStatBar("bath", NextTemp / 2);
     } else {
         const ZoomSpeed = 5;
         const Direction = Event.deltaY < 0 ? 1 : -1;
@@ -1622,9 +1870,6 @@ function WireBound(Id, Axis) {
         El.value = String(V);
         Prefs["Bound" + Axis] = V;
         if (CanvasRenderer) CanvasRenderer["Boundary" + Axis] = V;
-        if (BoundsSizeLabel && CanvasRenderer) {
-            BoundsSizeLabel.textContent = `${Math.round(CanvasRenderer.BoundaryX)}/${Math.round(CanvasRenderer.BoundaryY)}/${Math.round(CanvasRenderer.BoundaryZ)}`;
-        }
     };
     // Keep fields populated from Prefs / renderer
     const Initial = Prefs["Bound" + Axis] ?? (CanvasRenderer ? CanvasRenderer["Boundary" + Axis] : 300) ?? 300;
@@ -1707,25 +1952,33 @@ const Update = () => {
     FrameCounter++;
     FpsTimer += DeltaTime;
 
-    if (DeltaTimeLabel) DeltaTimeLabel.textContent = `${DeltaTime.toFixed(3)}ms`;
+    if (DeltaTimeLabel) DeltaTimeLabel.textContent = `${DeltaTime.toFixed(1)}ms`;
     if (TimeScaleLabel) {
         const Ts = CanvasRenderer.TargetTimeScale;
-        TimeScaleLabel.textContent = Ts <= 0 ? "PAUSED" : `${Ts.toFixed(2)}x`;
+        TimeScaleLabel.textContent = Ts <= 0 ? "paused" : `${Ts.toFixed(2)}×`;
+        SetStatBar("timescale", Ts / 2);
     }
     if (TemperatureLabel) {
         let SumKe = 0;
         for (const O of Objects) SumKe += O.KineticEnergy || 0;
         const AvgKe = Objects.length > 0 ? SumKe / Objects.length : 0;
-        TemperatureLabel.textContent = (AvgKe * 0.12).toFixed(2);
+        const SysT = AvgKe * 0.12;
+        TemperatureLabel.textContent = SysT.toFixed(2);
+        SetStatBar("systemp", SysT / 2);
     }
-    if (BathTempLabel) BathTempLabel.textContent = CanvasRenderer.Temperature.toFixed(2);
-    if (BoundsSizeLabel) {
-        BoundsSizeLabel.textContent =
-            `${Math.round(CanvasRenderer.BoundaryX)}/${Math.round(CanvasRenderer.BoundaryY)}/${Math.round(CanvasRenderer.BoundaryZ)}`;
+    if (BathTempLabel) {
+        const Bath = CanvasRenderer.Temperature;
+        BathTempLabel.textContent = Bath.toFixed(2);
+        SetStatBar("bath", Bath / 2);
+    }
+    if (FrictionValLabel && CanvasRenderer.Friction != null) {
+        FrictionValLabel.textContent = Number(CanvasRenderer.Friction).toFixed(2);
+        SetStatBar("friction", CanvasRenderer.Friction);
     }
     if (FpsTimer >= 1000) {
         const Fps = Math.round((FrameCounter * 1000) / FpsTimer);
-        if (FramerateLabel) FramerateLabel.textContent = `${String(Fps).padStart(3, "0")}/s`;
+        if (FramerateLabel) FramerateLabel.textContent = `${Fps}/s`;
+        SetStatBar("fps", Fps / Math.max(30, DisplayFpsMax || 240));
         FrameCounter = 0;
         FpsTimer = 0;
     }
@@ -1836,7 +2089,7 @@ if (typeof MutationObserver !== "undefined") {
 }
 
 
-/* ——— Settings + localStorage persistence ——— */
+/* ΓÇöΓÇöΓÇö Settings + localStorage persistence ΓÇöΓÇöΓÇö */
 const STORAGE_KEY = "mol.settings.v1";
 const SCENE_KEY = "mol.scene.v1";
 
@@ -1931,9 +2184,9 @@ function SaveSettings(Manual = false) {
                 Settle: document.getElementById("SpawnSettle")?.checked
             } : undefined,
             Prefs: SettingsState.PreservePrefs ? {
-                Bath: document.getElementById("PrefBath")?.value,
+                Bath: CanvasRenderer ? CanvasRenderer.Temperature : 0.35,
                 Free: document.getElementById("PrefFreeEnergy")?.value,
-                Friction: document.getElementById("PrefFriction")?.value,
+                Friction: CanvasRenderer ? CanvasRenderer.Friction : 0.45,
                 BoundX: document.getElementById("PrefBoundX")?.value,
                 BoundY: document.getElementById("PrefBoundY")?.value,
                 BoundZ: document.getElementById("PrefBoundZ")?.value,
@@ -2034,9 +2287,15 @@ function LoadSettings() {
                 const Lab = document.getElementById(ValId);
                 if (Lab) Lab.textContent = Fmt ? Fmt(Number(V)) : V;
             };
-            ApplyRange("PrefBath", "PrefBathVal", P.Bath, (V) => V.toFixed(2));
             ApplyRange("PrefFreeEnergy", "PrefFreeEnergyVal", P.Free, (V) => V.toFixed(1));
-            ApplyRange("PrefFriction", "PrefFrictionVal", P.Friction, (V) => V.toFixed(2));
+            if (P.Bath != null && CanvasRenderer) {
+                CanvasRenderer.Temperature = Number(P.Bath) || 0;
+                ApplyStatControl("bath", CanvasRenderer.Temperature / 2);
+            }
+            if (P.Friction != null && CanvasRenderer) {
+                CanvasRenderer.Friction = Number(P.Friction) || 0;
+                ApplyStatControl("friction", CanvasRenderer.Friction);
+            }
             ApplyRange("PrefExcite", "PrefExciteVal", P.Excite, (V) => V.toFixed(1));
             ApplyRange("PrefImpulse", "PrefImpulseVal", P.Impulse, (V) => String(V));
             ApplyRange("PrefShake", "PrefShakeVal", P.Shake, (V) => V.toFixed(1));
@@ -2048,7 +2307,9 @@ function LoadSettings() {
                 }
             }
             if (P.TimeScale != null && CanvasRenderer) {
+                CanvasRenderer.TargetTimeScale = Number(P.TimeScale);
                 CanvasRenderer.TimeScale = Number(P.TimeScale);
+                ApplyStatControl("timescale", Number(P.TimeScale) / 2);
                 const Ts = document.getElementById("SetTimescale");
                 const Tsv = document.getElementById("SetTimescaleVal");
                 if (Ts) Ts.value = String(P.TimeScale);
@@ -2162,3 +2423,166 @@ WireSettingsPanel();
 // Load after renderer boots
 const _BootPromise = (typeof BootRenderer === "function") ? null : null;
 setTimeout(() => LoadSettings(), 500);
+
+
+/* ——— Profile favicon morph + cloud account UI ——— */
+const DefaultFaviconHref = "Images/Favicon.svg";
+let FaviconMorphRaf = 0;
+
+function GetDashFavicons() {
+    return [
+        document.getElementById("DashFavicon"),
+        document.getElementById("MobileFavicon"),
+        document.querySelector('link[rel="shortcut icon"]'),
+        document.querySelector('link[rel="icon"]')
+    ].filter(Boolean);
+}
+
+function MorphFaviconToProfile(User, DurationMs = 1100) {
+    const AvatarUrl = globalThis.GenerateProfileAvatar
+        ? globalThis.GenerateProfileAvatar(User.Name, User.id, 192)
+        : DefaultFaviconHref;
+
+    const Acc = document.getElementById("AccAvatar");
+    if (Acc) {
+        Acc.style.opacity = "0";
+        Acc.style.transform = "scale(0.85)";
+        Acc.src = AvatarUrl;
+        requestAnimationFrame(() => {
+            Acc.style.transition = "opacity 0.7s ease, transform 0.7s cubic-bezier(.2,.8,.2,1)";
+            Acc.style.opacity = "1";
+            Acc.style.transform = "scale(1)";
+        });
+    }
+
+    const Imgs = [
+        document.getElementById("DashFavicon"),
+        document.getElementById("MobileFavicon")
+    ].filter(Boolean);
+
+    Imgs.forEach((Img) => {
+        const Parent = Img.parentElement;
+        if (!Parent) {
+            Img.src = AvatarUrl;
+            return;
+        }
+        Parent.classList.add("FaviconHost");
+        // Measure base icon box
+        const Rect = Img.getBoundingClientRect();
+        const Size = Math.max(16, Math.round(Rect.width || 18));
+
+        let Overlay = Parent.querySelector(".FaviconOverlay");
+        if (!Overlay) {
+            Overlay = document.createElement("img");
+            Overlay.className = "FaviconOverlay";
+            Overlay.alt = "";
+            Parent.appendChild(Overlay);
+        }
+        Overlay.src = AvatarUrl;
+        Overlay.style.width = Size + "px";
+        Overlay.style.height = Size + "px";
+        Overlay.style.borderRadius = "50%";
+
+        // Phase 1: base fades out slightly, overlay fades in + scales
+        Img.classList.add("FaviconOut");
+        Overlay.classList.remove("Show");
+        // force reflow
+        void Overlay.offsetWidth;
+        Overlay.classList.add("Show");
+
+        window.setTimeout(() => {
+            Img.src = AvatarUrl;
+            Img.classList.remove("FaviconOut");
+            Img.classList.add("FaviconIn");
+            Overlay.classList.remove("Show");
+            window.setTimeout(() => Img.classList.remove("FaviconIn"), 400);
+        }, DurationMs);
+    });
+
+    window.setTimeout(() => {
+        document.querySelectorAll('link[rel="shortcut icon"], link[rel="icon"]').forEach((Link) => {
+            Link.href = AvatarUrl;
+        });
+    }, Math.floor(DurationMs * 0.55));
+}
+
+function ResetFaviconToDefault() {
+    const Targets = GetDashFavicons();
+    Targets.forEach((El) => {
+        if (El.tagName === "IMG") El.src = DefaultFaviconHref;
+        if (El.tagName === "LINK") El.href = DefaultFaviconHref;
+    });
+    document.querySelectorAll(".FaviconOverlay").forEach((El) => El.remove());
+    const Acc = document.getElementById("AccAvatar");
+    if (Acc) Acc.removeAttribute("src");
+}
+
+function SyncAccountUi() {
+    const User = globalThis.MolCloud && globalThis.MolCloud.User;
+    const Out = document.getElementById("AccountLoggedOut");
+    const In = document.getElementById("AccountLoggedIn");
+    const Label = document.getElementById("AccNameLabel");
+    if (!Out || !In) return;
+    if (User) {
+        Out.hidden = true;
+        In.hidden = false;
+        if (Label) Label.textContent = User.Name;
+        MorphFaviconToProfile(User);
+    } else {
+        Out.hidden = false;
+        In.hidden = true;
+        ResetFaviconToDefault();
+    }
+}
+
+function WireCloudUi() {
+    const LoginBtn = document.getElementById("AccLogin");
+    const CreateBtn = document.getElementById("AccCreate");
+    const LogoutBtn = document.getElementById("AccLogout");
+    const Hint = document.getElementById("AccountHint");
+    const setHint = (T, Ok) => {
+        if (!Hint) return;
+        Hint.textContent = T || "";
+        Hint.style.color = Ok ? "rgba(120,220,160,0.9)" : "rgba(255,140,140,0.9)";
+    };
+
+    LoginBtn?.addEventListener("click", async () => {
+        try {
+            const Name = document.getElementById("AccName")?.value;
+            const Pass = document.getElementById("AccPass")?.value;
+            await globalThis.MolCloud.Login(Name, Pass);
+            setHint("Logged in.", true);
+            SyncAccountUi();
+        } catch (Err) {
+            setHint(Err.message || String(Err), false);
+        }
+    });
+    CreateBtn?.addEventListener("click", async () => {
+        try {
+            const Name = document.getElementById("AccName")?.value;
+            const Pass = document.getElementById("AccPass")?.value;
+            await globalThis.MolCloud.CreateAccount(Name, Pass);
+            setHint("Account created.", true);
+            SyncAccountUi();
+        } catch (Err) {
+            setHint(Err.message || String(Err), false);
+        }
+    });
+    LogoutBtn?.addEventListener("click", () => {
+        globalThis.MolCloud.Logout();
+        setHint("Logged out.", true);
+        SyncAccountUi();
+    });
+
+    if (globalThis.MolCloud?.User) {
+        window.setTimeout(() => SyncAccountUi(), 320);
+    } else {
+        SyncAccountUi();
+    }
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", WireCloudUi);
+} else {
+    WireCloudUi();
+}

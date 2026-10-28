@@ -8,6 +8,7 @@
         <link rel="shortcut icon" href="Images/Favicon.svg" type="image/x-icon">
 
         <script type="module" src="Scripts/Enum.js"></script>
+        <script type="module" src="Scripts/Firestore.js"></script>
         <script type="module" src="Scripts/Chemistry.js"></script>
         <script type="module" src="Scripts/Plugin.js"></script>
         <script type="module" src="Scripts/Plugins/LatticeMaker.js"></script>
@@ -17,6 +18,7 @@
         <script type="module" src="Scripts/Plugins/Orbital.js"></script>
         <script type="module" src="Scripts/Plugins/Ai.js"></script>
         <script type="module" src="Scripts/Plugins/Joystick.js"></script>
+        <script type="module" src="Scripts/Plugins/Scenes.js"></script>
         <script type="module" src="Scripts/Global.d.js"></script>
 
         <title>Mol</title>
@@ -24,27 +26,43 @@
     <body>
         <div class="MobileBar" id="MobileBar">
             <button type="button" class="MobileBtn" data-target="DashboardPanel">Stats</button>
-            <span class="MobileTitle"><img class="MobileFavicon" src="Images/Favicon.svg" alt="">Mol</span>
+            <span class="MobileTitle"><img class="MobileFavicon" id="MobileFavicon" src="Images/Favicon.svg" alt="">Mol</span>
             <button type="button" class="MobileBtn" data-target="HierarchyPanel">Atoms</button>
         </div>
         <div class="Area Dashboard" id="DashboardPanel">
             <div class="DashHeader">
-                <small><img class="Favicon" src="Images/Favicon.svg">Mol</small>
+                <small><img class="Favicon" id="DashFavicon" src="Images/Favicon.svg" alt="">Mol</small>
                 <button type="button" class="SettingsBtn" id="SettingsBtn" title="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="SettingsPanel">Settings</button>
             </div>
             <hr>
-            <div><span>Framerate</span><span class="Framerate">000/s</span></div>
-            <div><span>Delta Time</span><span class="DeltaTime">0.000ms</span></div>
-            <div><span>Timescale</span><span class="TimeScale">0.50x</span></div>
-            <div><span>Sys Temp</span><span class="Temperature">0.00</span></div>
-            <div><span>Bath</span><span class="BathTemp">0.35</span></div>
-            <div><span>Bounds</span><span class="BoundsSize">300/300/300</span></div>
+            <div class="StatRow" data-stat="fps">
+                <div class="StatHead"><span>Framerate</span><span class="Framerate">—</span></div>
+                <div class="StatBar"><div class="StatBarFill"></div></div>
+            </div>
+            <div class="StatRow">
+                <div class="StatHead"><span>Delta</span><span class="DeltaTime">0.0ms</span></div>
+            </div>
+            <div class="StatRow StatInteractive" data-stat="timescale" data-min="0" data-max="2" data-step="0.05" title="Drag to set timescale">
+                <div class="StatHead"><span>Timescale</span><span class="TimeScale">0.50x</span></div>
+                <div class="StatBar"><div class="StatBarFill"></div></div>
+            </div>
+            <div class="StatRow" data-stat="systemp">
+                <div class="StatHead"><span>Sys temp</span><span class="Temperature">0.00</span></div>
+                <div class="StatBar"><div class="StatBarFill"></div></div>
+            </div>
+            <div class="StatRow StatInteractive" data-stat="bath" data-min="0" data-max="2" data-step="0.05" title="Drag to set bath temperature">
+                <div class="StatHead"><span>Bath</span><span class="BathTemp">0.35</span></div>
+                <div class="StatBar"><div class="StatBarFill"></div></div>
+            </div>
+            <div class="StatRow StatInteractive" data-stat="friction" data-min="0" data-max="1" data-step="0.05" title="Drag to set friction">
+                <div class="StatHead"><span>Friction</span><span class="FrictionVal">0.45</span></div>
+                <div class="StatBar"><div class="StatBarFill"></div></div>
+            </div>
             <hr>
             <small>System</small>
             <div class="Prefs DashPrefs">
-                <label>Bath temp <input type="range" id="PrefBath" min="0" max="2" step="0.05" value="0.35"><span id="PrefBathVal">0.35</span></label>
                 <label>Free energy <input type="range" id="PrefFreeEnergy" min="0" max="3" step="0.1" value="0"><span id="PrefFreeEnergyVal">0.0</span></label>
-                <label>Friction <input type="range" id="PrefFriction" min="0" max="1" step="0.05" value="0.45"><span id="PrefFrictionVal">0.45</span></label>
+                <div class="DashPrefsHint">Timescale, bath &amp; friction: drag the bars above.</div>
             </div>
             <hr>
             <small>Display</small>
@@ -100,6 +118,31 @@
         </div>
                 <div class="SettingsPanel" id="SettingsPanel" hidden role="dialog" aria-label="Settings">
             <div class="SettingsTitle">Settings</div>
+
+            <div class="SettingsSection" id="AccountSection">
+                <div class="SettingsSectionTitle">Account</div>
+                <div id="AccountLoggedOut">
+                    <label class="SettingsRow">Name <input type="text" id="AccName" class="SettingsText" placeholder="Username" autocomplete="username"></label>
+                    <label class="SettingsRow">Password <input type="password" id="AccPass" class="SettingsText" placeholder="Password" autocomplete="current-password"></label>
+                    <div class="SettingsActions">
+                        <button type="button" class="SettingsPrimary" id="AccLogin">Log in</button>
+                        <button type="button" id="AccCreate">Create</button>
+                    </div>
+                </div>
+                <div id="AccountLoggedIn" hidden>
+                    <div class="AccountUserRow">
+                        <img id="AccAvatar" class="AccAvatar" alt="">
+                        <div>
+                            <div class="AccNameLabel" id="AccNameLabel">—</div>
+                            <div class="AccMeta">Cloud profile</div>
+                        </div>
+                    </div>
+                    <div class="SettingsActions">
+                        <button type="button" id="AccLogout">Log out</button>
+                    </div>
+                </div>
+                <div class="SettingsHint" id="AccountHint"></div>
+            </div>
             <div class="SettingsSection">
                 <div class="SettingsSectionTitle">Appearance</div>
                 <label class="SettingsRow">Theme
@@ -114,7 +157,7 @@
             <div class="SettingsSection">
                 <div class="SettingsSectionTitle">Preserve (local)</div>
                 <label class="SettingsCheck"><input type="checkbox" id="SetPreserveDisplay" checked> Display mode</label>
-                <label class="SettingsCheck"><input type="checkbox" id="SetPreserveSpawn" checked> Spawn settings & last element</label>
+                <label class="SettingsCheck"><input type="checkbox" id="SetPreserveSpawn" checked> Spawn settings &amp; last element</label>
                 <label class="SettingsCheck"><input type="checkbox" id="SetPreservePlugins" checked> Open plugins</label>
                 <label class="SettingsCheck"><input type="checkbox" id="SetPreservePrefs" checked> System prefs (bath, friction, bounds)</label>
                 <label class="SettingsCheck"><input type="checkbox" id="SetPreserveScene"> Scene molecules (optional)</label>
@@ -128,7 +171,7 @@
                 <button type="button" class="SettingsPrimary" id="SetSave">Save now</button>
                 <button type="button" id="SetClear">Clear saved data</button>
             </div>
-            <div class="SettingsHint" id="SettingsHint">Stored in this browser only (localStorage).</div>
+            <div class="SettingsHint" id="SettingsHint">Local prefs use localStorage; scenes use Firestore.</div>
         </div>
         <div class="Tooltip"></div>
         <div class="SpawnMenu" id="SpawnMenu" hidden role="dialog" aria-label="Spawn options">

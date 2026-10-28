@@ -11,9 +11,19 @@
     --accent-soft: rgba(10, 132, 255, 0.22);
     --accent-border: rgba(10, 132, 255, 0.45);
     --danger: #ff453a;
+    --input-bg: rgba(255, 255, 255, 0.06);
+    --input-bg-hover: rgba(255, 255, 255, 0.1);
+    --input-border: rgba(255, 255, 255, 0.14);
+    --input-border-focus: rgba(255, 255, 255, 0.28);
+    --surface: rgba(255, 255, 255, 0.04);
+    --surface-hover: rgba(255, 255, 255, 0.09);
+    --option-bg: #1c1c1e;
+    --track: rgba(255, 255, 255, 0.12);
+    --thumb: #ffffff;
+    --on-accent: #ffffff;
     --radius: 12px;
     --radius-sm: 8px;
-    --gap: 6px;
+    --gap: 8px;
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-right: env(safe-area-inset-right, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -290,12 +300,12 @@ select.UiSelect,
 .SettingsRow select {
     flex: 1;
     min-width: 0;
-    background-color: rgba(255, 255, 255, 0.06);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 L6 6.5 L11 1.5' fill='none' stroke='rgba(255,255,255,0.7)' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-color: var(--input-bg);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 L6 6.5 L11 1.5' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 10px center;
     background-size: 10px 6px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--input-border);
     color: var(--text);
     border-radius: 7px;
     padding: 6px 28px 6px 10px;
@@ -311,19 +321,19 @@ select.UiSelect,
 
 .AtomSelect:hover, .WSelect:hover, .SpawnMenuRow select:hover, select.UiSelect:hover, .SettingsSelect:hover, .SettingsRow select:hover,
 .AtomSelect:focus, .WSelect:focus, .SpawnMenuRow select:focus, select.UiSelect:focus, .SettingsSelect:focus, .SettingsRow select:focus {
-    border-color: rgba(255, 255, 255, 0.24);
-    background-color: rgba(255, 255, 255, 0.09);
+    border-color: var(--input-border-focus);
+    background-color: var(--input-bg-hover);
 }
 
 .AtomSelect option, .WSelect option, .SpawnMenuRow select option, select.UiSelect option, .SettingsSelect option, .SettingsRow select option {
-    background: #1c1c1e;
+    background: var(--option-bg);
     color: var(--text);
 }
 
 .SpawnBtn {
     background: var(--accent-soft);
     border: 1px solid var(--accent-border);
-    color: #fff;
+    color: var(--on-accent);
     border-radius: var(--radius-sm);
     padding: 6px 12px;
     font-size: 12px;
@@ -368,7 +378,8 @@ select.UiSelect,
     gap: 1px;
 }
 
-.Prefs input[type="range"] {
+.Prefs input[type="range"],
+.SettingsRow input[type="range"] {
     flex: 1;
     min-width: 0;
     height: 4px;
@@ -1140,7 +1151,7 @@ select.UiSelect,
     right: 0;
     bottom: calc(12px + var(--safe-bottom));
     height: 0;
-    /* Below panels, mobile bar, plugins, menus ΓÇö only above the canvas */
+    /* Below panels, mobile bar, plugins, menus ╬ô├ç├╢ only above the canvas */
     z-index: 12;
     pointer-events: none;
 }
@@ -1727,17 +1738,21 @@ input[type="number"]::-webkit-inner-spin-button {
     z-index: 90;
     width: min(320px, calc(100vw - 16px));
     max-height: min(70vh, 520px);
+    overflow-x: hidden;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     padding: 12px 14px 14px;
-    background: rgba(14, 14, 16, 0.94);
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
     border-radius: 12px;
     backdrop-filter: blur(20px) saturate(150%);
     -webkit-backdrop-filter: blur(20px) saturate(150%);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--panel-shadow);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
+    color: var(--text);
 }
 .SettingsPanel[hidden] { display: none !important; }
 .SettingsTitle {
@@ -1745,30 +1760,34 @@ input[type="number"]::-webkit-inner-spin-button {
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.55);
+    color: var(--text-secondary);
 }
 .SettingsSection {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 8px;
+    gap: var(--gap);
+    padding: 10px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--surface);
+    border: 1px solid var(--panel-border);
 }
 .SettingsSectionTitle {
     font-size: 11px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--text);
     margin-bottom: 2px;
 }
 .SettingsRow {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 8px;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.75);
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+.SettingsRow > label,
+.SettingsRow {
+    min-height: 28px;
 }
 .SettingsRow input[type="range"] {
     flex: 1;
@@ -1783,24 +1802,31 @@ input[type="number"]::-webkit-inner-spin-button {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--text-secondary);
     cursor: pointer;
 }
 .SettingsActions {
     display: flex;
-    gap: 8px;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
 }
 .SettingsActions button {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
     color: var(--text);
-    padding: 8px;
+    padding: 8px 10px;
     font-size: 12px;
     cursor: pointer;
+}
+.SettingsActions button + button {
+    margin-left: 0;
 }
 .SettingsPrimary {
     background: var(--accent-soft) !important;
@@ -1809,7 +1835,7 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 .SettingsHint {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--text-tertiary);
 }
 
 /* Themes */
@@ -1817,32 +1843,84 @@ body.Theme-midnight {
     --panel-bg: rgba(8, 10, 24, 0.72);
     --panel-border: rgba(120, 140, 255, 0.22);
     --text: #e8ecff;
+    --text-secondary: rgba(200, 210, 255, 0.55);
+    --text-tertiary: rgba(180, 190, 255, 0.35);
     --accent-soft: rgba(90, 120, 255, 0.28);
     --accent-border: rgba(120, 150, 255, 0.55);
+    --input-bg: rgba(120, 140, 255, 0.08);
+    --input-bg-hover: rgba(120, 140, 255, 0.14);
+    --input-border: rgba(140, 160, 255, 0.22);
+    --option-bg: #121428;
 }
 body.Theme-slate {
     --panel-bg: rgba(20, 24, 28, 0.78);
     --panel-border: rgba(180, 200, 210, 0.18);
     --text: #edf2f4;
+    --text-secondary: rgba(200, 210, 220, 0.55);
+    --text-tertiary: rgba(180, 190, 200, 0.35);
     --accent-soft: rgba(0, 180, 160, 0.28);
     --accent-border: rgba(0, 210, 180, 0.5);
+    --input-bg: rgba(180, 200, 210, 0.08);
+    --input-bg-hover: rgba(180, 200, 210, 0.14);
+    --option-bg: #1a1e22;
 }
 body.Theme-light {
-    --panel-bg: rgba(245, 247, 250, 0.9);
+    --panel-bg: rgba(245, 247, 250, 0.94);
     --panel-border: rgba(0, 0, 0, 0.12);
     --text: #1a1d21;
     --text-secondary: #4a5560;
     --text-tertiary: #6b7780;
-    --accent-soft: rgba(10, 132, 255, 0.18);
-    --accent-border: rgba(10, 132, 255, 0.55);
+    --accent: #0a84ff;
+    --accent-soft: rgba(10, 132, 255, 0.16);
+    --accent-border: rgba(10, 132, 255, 0.45);
     --panel-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+    --input-bg: rgba(0, 0, 0, 0.05);
+    --input-bg-hover: rgba(0, 0, 0, 0.08);
+    --input-border: rgba(0, 0, 0, 0.14);
+    --input-border-focus: rgba(10, 132, 255, 0.45);
+    --surface: rgba(0, 0, 0, 0.03);
+    --surface-hover: rgba(0, 0, 0, 0.06);
+    --option-bg: #ffffff;
+    --track: rgba(0, 0, 0, 0.12);
+    --thumb: #3a3a3c;
+    --on-accent: #ffffff;
 }
 body.Theme-light .Canvas { filter: none; }
 body.Theme-light .SettingsPanel,
 body.Theme-light .SpawnMenu,
-body.Theme-light .PluginDockMenu {
-    background: rgba(250, 252, 255, 0.96);
-    color: #1a1d21;
+body.Theme-light .PluginDockMenu,
+body.Theme-light .PluginWidget,
+body.Theme-light .ContextMenu,
+body.Theme-light .DropdownMenu {
+    background: rgba(250, 252, 255, 0.97);
+    color: var(--text);
+    border-color: var(--panel-border);
+}
+body.Theme-light .SettingsTitle,
+body.Theme-light .SettingsSectionTitle,
+body.Theme-light .SettingsRow,
+body.Theme-light .SettingsCheck,
+body.Theme-light .SettingsHint,
+body.Theme-light .AccMeta,
+body.Theme-light .SceneMeta {
+    color: var(--text-secondary);
+}
+body.Theme-light .SettingsSectionTitle,
+body.Theme-light .AccNameLabel,
+body.Theme-light .SceneTitle {
+    color: var(--text);
+}
+body.Theme-light input,
+body.Theme-light select,
+body.Theme-light textarea {
+    color: var(--text);
+    background-color: var(--input-bg);
+    border-color: var(--input-border);
+}
+body.Theme-light .SpawnBtn,
+body.Theme-light .SettingsPrimary,
+body.Theme-light .WPrimary {
+    color: var(--on-accent);
 }
 
 
@@ -1853,4 +1931,430 @@ body.Theme-light .PluginDockMenu {
 .HierGroupLabel sup {
     font-size: 0.72em;
     vertical-align: super;
+}
+
+
+
+/* Account / scenes / favicon morph */
+.SettingsText,
+.SettingsPanel input[type="text"],
+.SettingsPanel input[type="password"],
+.SettingsPanel input[type="number"],
+.WText {
+    flex: 1;
+    min-width: 0;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    outline: none;
+}
+.SettingsText:focus,
+.SettingsPanel input:focus,
+.WText:focus {
+    border-color: var(--input-border-focus);
+    background: var(--input-bg-hover);
+}
+.AccountUserRow {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+}
+.AccAvatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    object-fit: cover;
+    background: rgba(255, 255, 255, 0.06);
+}
+.AccNameLabel {
+    font-weight: 700;
+    font-size: 13px;
+}
+.AccMeta {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+}
+.SceneList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    margin-top: 6px;
+}
+.SceneCard {
+    padding: 8px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.SceneTitle {
+    font-size: 12px;
+    font-weight: 600;
+}
+.SceneMeta {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+}
+.SceneCardActions {
+    display: flex;
+    gap: 6px;
+}
+.SceneCardActions button,
+.StarBtn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+}
+.SceneStars {
+    display: flex;
+    gap: 2px;
+}
+.StarBtn {
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.25);
+    padding: 0 2px;
+    font-size: 14px;
+}
+.StarBtn.On { color: #ffc14a; }
+.SceneComment {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.55);
+    padding: 2px 0;
+}
+.SceneEmpty {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    padding: 6px 0;
+}
+
+.DashHeader small,
+.MobileTitle {
+    position: relative;
+}
+.Favicon,
+.MobileFavicon {
+    transition: opacity 0.65s ease, transform 0.65s cubic-bezier(.2,.8,.2,1), filter 0.65s ease;
+    border-radius: 50%;
+}
+.FaviconMorph {
+    animation: FaviconPulse 0.9s ease;
+}
+.FaviconOverlay {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%) scale(0.7);
+    width: 18px;
+    height: 18px;
+    opacity: 0;
+    border-radius: 50%;
+    pointer-events: none;
+    transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.DashHeader small .FaviconOverlay {
+    left: 0;
+}
+.MobileTitle .FaviconOverlay {
+    left: 0;
+}
+.FaviconOverlay.Show {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+}
+@keyframes FaviconPulse {
+    0% { filter: brightness(1); transform: scale(1); }
+    40% { filter: brightness(1.35); transform: scale(1.12); }
+    100% { filter: brightness(1); transform: scale(1); }
+}
+
+
+.FaviconHost {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+.FaviconOut {
+    opacity: 0.15;
+    transform: scale(0.82);
+    filter: blur(1px);
+}
+.FaviconIn {
+    opacity: 1;
+    transform: scale(1);
+}
+.FaviconOverlay {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%) scale(0.55);
+    opacity: 0;
+    border-radius: 50%;
+    pointer-events: none;
+    transition: opacity 0.75s cubic-bezier(.2,.8,.2,1), transform 0.75s cubic-bezier(.2,.8,.2,1);
+}
+.FaviconOverlay.Show {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+    box-shadow: 0 0 12px rgba(120, 180, 255, 0.35);
+}
+.SceneListWide { max-height: 320px; }
+.SceneCommentForm {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+.SceneCommentForm .WText,
+.SceneCommentInput {
+    flex: 1;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+}
+.SceneCommentsFull {
+    max-height: 140px;
+    overflow-y: auto;
+    margin-top: 6px;
+}
+.SceneDetail { margin-top: 4px; }
+.Canvas {
+    width: 100%;
+    height: 100%;
+}
+
+
+/* themed form controls */
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="search"],
+textarea,
+select {
+    background-color: var(--input-bg);
+    border: 1px solid var(--input-border);
+    color: var(--text);
+    border-radius: 6px;
+    outline: none;
+}
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+textarea:focus,
+select:focus {
+    border-color: var(--input-border-focus);
+    background-color: var(--input-bg-hover);
+}
+input[type="range"] {
+    accent-color: var(--accent);
+}
+
+
+.SceneCardRow {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+}
+.SceneThumb {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--panel-border, rgba(255,255,255,0.12));
+}
+.SceneThumbLg {
+    width: 72px;
+    height: 72px;
+    border-radius: 12px;
+}
+.SceneDetailHeader {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.SceneCogBtn {
+    background: var(--input-bg, rgba(255,255,255,0.06));
+    border: 1px solid var(--input-border, rgba(255,255,255,0.12));
+    color: var(--text);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    line-height: 1;
+}
+.SceneCogBtn:hover {
+    background: var(--input-bg-hover, rgba(255,255,255,0.1));
+}
+.SceneCogMenu {
+    position: absolute;
+    z-index: 120;
+    min-width: 150px;
+    padding: 4px;
+    border-radius: 8px;
+    background: var(--panel-bg, rgba(20,20,24,0.96));
+    border: 1px solid var(--panel-border, rgba(255,255,255,0.16));
+    box-shadow: var(--panel-shadow, 0 8px 24px rgba(0,0,0,0.4));
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.SceneCogMenu button {
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.SceneCogMenu button:hover {
+    background: var(--surface-hover, rgba(255,255,255,0.08));
+}
+.SceneCogMenu button.Danger {
+    color: var(--danger, #ff453a);
+}
+
+
+/* Dashboard stat bars */
+.Dashboard .StatRow {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    min-height: 0;
+    padding: 2px 0 4px;
+}
+.Dashboard .StatHead {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+}
+.Dashboard .StatHead > span:first-child {
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 11px;
+}
+.Dashboard .StatHead > span:last-child {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    font-size: 11px;
+    color: var(--text);
+}
+.StatBar {
+    position: relative;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--track, rgba(255, 255, 255, 0.1));
+    overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.StatBarFill {
+    --bar-t: 0;
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    /* Continuous green → accent → orange by --bar-t (0–1) */
+    background: linear-gradient(
+        90deg,
+        color-mix(in srgb, #30d158 calc((1 - var(--bar-t)) * 100%), var(--accent)),
+        color-mix(in srgb, var(--accent) calc((1 - var(--bar-t)) * 100%), #ff9f0a)
+    );
+    box-shadow: 0 0 10px color-mix(
+        in srgb,
+        color-mix(in srgb, #30d158 calc((1 - var(--bar-t)) * 100%), #ff9f0a) 40%,
+        transparent
+    );
+    transition:
+        width 0.4s cubic-bezier(.2,.8,.2,1),
+        background 0.55s ease,
+        box-shadow 0.55s ease;
+}
+body.Theme-light .StatBar {
+    background: rgba(0, 0, 0, 0.08);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+
+.StatRow.StatInteractive .StatBar {
+    cursor: ew-resize;
+    height: 9px;
+}
+.StatRow.StatInteractive .StatBar:hover {
+    filter: brightness(1.12);
+}
+.StatRow.StatInteractive .StatBar:active .StatBarFill {
+    transition: none;
+}
+.DashPrefsHint {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    line-height: 1.35;
+    padding: 2px 0 0;
+}
+
+
+.DropdownSub {
+    position: relative;
+}
+.DropdownSubTrigger {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+.DropdownSubChevron {
+    margin-left: auto;
+    opacity: 0.55;
+    font-size: 11px;
+}
+.DropdownSubMenu,
+.ModelFlyout {
+    position: fixed;
+    min-width: 180px;
+    padding: 5px;
+    border-radius: 10px;
+    background: rgba(36, 36, 38, 0.96);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    z-index: 10001;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    overflow: visible;
+}
+.DropdownSubMenu[hidden],
+.ModelFlyout[hidden] {
+    display: none !important;
+}
+body.Theme-light .DropdownSubMenu,
+body.Theme-light .ModelFlyout {
+    background: rgba(250, 252, 255, 0.98);
+    border-color: var(--panel-border);
+    color: var(--text);
 }
