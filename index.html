@@ -36,7 +36,7 @@
             </div>
             <hr>
             <div class="StatRow" data-stat="fps">
-                <div class="StatHead"><span>Framerate</span><span class="Framerate">—</span></div>
+                <div class="StatHead"><span>Framerate</span><span class="Framerate">ΓÇö</span></div>
                 <div class="StatBar"><div class="StatBarFill"></div></div>
             </div>
             <div class="StatRow">
@@ -96,7 +96,7 @@
             <hr>
             <small>Add Atom</small>
             <div class="AtomAdder">
-                <select id="AtomSelect" class="AtomSelect"></select>
+                <button type="button" id="AtomSelectBtn" class="AtomSelectBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="PeriodicTablePanel"><span class="AtomSelectSym" id="AtomSelectSymbol">C</span><span class="AtomSelectName" id="AtomSelectName">Carbon</span><span class="DropdownChevron"></span></button><select id="AtomSelect" class="AtomSelect" hidden aria-hidden="true" tabindex="-1"></select>
                 <button type="button" id="SpawnAtomBtn" class="SpawnBtn">Spawn</button>
                 <button type="button" id="SpawnOptsBtn" class="SpawnOptsBtn" title="Spawn options" aria-haspopup="true" aria-expanded="false" aria-controls="SpawnMenu" aria-label="Spawn options"><span class="SpawnOptsGlyph" aria-hidden="true"></span></button>
             </div>
@@ -133,7 +133,7 @@
                     <div class="AccountUserRow">
                         <img id="AccAvatar" class="AccAvatar" alt="">
                         <div>
-                            <div class="AccNameLabel" id="AccNameLabel">—</div>
+                            <div class="AccNameLabel" id="AccNameLabel">ΓÇö</div>
                             <div class="AccMeta">Cloud profile</div>
                         </div>
                     </div>
@@ -200,6 +200,14 @@
             <label class="SpawnMenuCheck"><input type="checkbox" id="SpawnSettle" checked> Settle after spawn</label>
             <div class="SpawnMenuHint">Settings apply to the next Spawn.</div>
         </div>
+        <div class="PeriodicTablePanel" id="PeriodicTablePanel" hidden role="dialog" aria-modal="true" aria-label="Choose an element">
+            <div class="PeriodicTableHead">
+                <div class="PeriodicTableTitle">Periodic Table</div>
+                <button type="button" class="PeriodicTableClose" id="PeriodicTableClose" aria-label="Close periodic table">×</button>
+            </div>
+            <div class="PeriodicTableHint" id="PeriodicTableHint">Select an element to spawn.</div>
+            <div class="PeriodicTableGrid" id="PeriodicTableGrid"></div>
+        </div>
         <div class="ContextMenu" id="ContextMenu" hidden>
             <div class="CtxTitle">Atom</div>
             <button data-action="excite">Excite (+energy)</button>
@@ -228,3 +236,4 @@
         <canvas class="Canvas"></canvas>
     </body>
 </html>
+

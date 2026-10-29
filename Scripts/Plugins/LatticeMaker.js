@@ -157,7 +157,6 @@
             }
         }
 
-        Api.SetTemperature(State.Temp ?? 0.05);
         Api.SetFreeEnergy(0);
         Api.Settle(220);
 
@@ -176,8 +175,7 @@
             Nx: 2, Ny: 2, Nz: 2,
             Scale: 72,
             Element: "C",
-            Clear: true,
-            Temp: 0.08
+            Clear: true
         };
 
         Api.CreateWidget({
@@ -269,26 +267,7 @@
                 ScaleRow.appendChild(ScaleVal);
                 Dims.appendChild(ScaleRow);
 
-                const Env = Api.AddSection(Body, "Environment", false);
-                const TempRow = document.createElement("div");
-                TempRow.className = "WRow";
-                TempRow.innerHTML = `<label>Bath T</label>`;
-                const TempInput = document.createElement("input");
-                TempInput.type = "range";
-                TempInput.className = "WRange";
-                TempInput.min = "0";
-                TempInput.max = "0.8";
-                TempInput.step = "0.02";
-                TempInput.value = "0.08";
-                const TempVal = document.createElement("span");
-                TempVal.className = "WHint";
-                TempVal.style.minWidth = "34px";
-                TempVal.style.textAlign = "right";
-                TempVal.textContent = "0.08";
-                TempRow.appendChild(TempInput);
-                TempRow.appendChild(TempVal);
-                Env.appendChild(TempRow);
-
+                const Action = Api.AddSection(Body, "Build", true);
                 const ClearRow = document.createElement("div");
                 ClearRow.className = "WRow";
                 const ClearLabel = document.createElement("label");
@@ -299,9 +278,8 @@
                 ClearLabel.appendChild(ClearInput);
                 ClearLabel.appendChild(document.createTextNode("Clear existing atoms"));
                 ClearRow.appendChild(ClearLabel);
-                Env.appendChild(ClearRow);
+                Action.appendChild(ClearRow);
 
-                const Action = Api.AddSection(Body, "Build", true);
                 const Hint = document.createElement("div");
                 Hint.className = "WHint";
                 Hint.textContent = "Keep Nx Ny Nz small (<= ~3^3) for performance.";
@@ -328,9 +306,6 @@
                 SyncDesc();
 
                 ScaleInput.addEventListener("input", () => { ScaleVal.textContent = ScaleInput.value; });
-                TempInput.addEventListener("input", () => {
-                    TempVal.textContent = Number(TempInput.value).toFixed(2);
-                });
 
                 BuildBtn.addEventListener("click", () => {
                     State.Type = TypeSel.value;
@@ -340,7 +315,6 @@
                     State.Scale = Number(ScaleInput.value) || 72;
                     State.Element = ElementInput.value.trim() || "C";
                     State.Clear = ClearInput.checked;
-                    State.Temp = Number(TempInput.value) || 0.08;
                     BuildLattice(Api, State);
                 });
             }
@@ -350,7 +324,7 @@
     const Entry = {
         Id: "lattice-maker",
         Name: "Lattice Maker",
-        Version: "1.2.0",
+        Version: "1.2.1",
         Description: "Build diamond, graphite, NaCl, FCC, BCC, and cubic lattices",
         Setup(Api) {
             Api.On("OpenPlugin", ({ Id }) => {

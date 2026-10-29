@@ -7,7 +7,6 @@ function WithRenderer(Fn) {
     return Fn(CanvasRenderer);
 }
 
-
 const FramerateLabel = document.querySelector(".Framerate");
 const DeltaTimeLabel = document.querySelector(".DeltaTime");
 const TimeScaleLabel = document.querySelector(".TimeScale");
@@ -28,7 +27,6 @@ function DetectDisplayFpsMax() {
         }
     } catch (Err) {}
 
-    // Measure via rAF intervals (best-effort)
     let Samples = [];
     let Last = performance.now();
     let Count = 0;
@@ -44,7 +42,6 @@ function DetectDisplayFpsMax() {
         if (Samples.length) {
             Samples.sort((A, B) => A - B);
             const Mid = Samples[Math.floor(Samples.length * 0.5)];
-            // Snap to common rates
             const Common = [60, 75, 90, 100, 120, 144, 165, 180, 200, 240, 360];
             let Best = 60, BestD = Infinity;
             for (const C of Common) {
@@ -70,7 +67,6 @@ function SetStatBar(Name, Ratio) {
     if (!Fill) return;
     const T = Math.max(0, Math.min(1, Ratio));
     Fill.style.width = `${(T * 100).toFixed(2)}%`;
-    // Smooth color via CSS custom property (0–1), no discrete level jumps
     Fill.style.setProperty("--bar-t", T.toFixed(4));
 }
 
@@ -81,7 +77,7 @@ function ApplyStatControl(Name, Ratio) {
         const V = Math.round((T * 2) / 0.05) * 0.05;
         CanvasRenderer.TargetTimeScale = Number(V.toFixed(2));
         if (V <= 0) CanvasRenderer.TimeScale = 0;
-        if (TimeScaleLabel) TimeScaleLabel.textContent = V <= 0 ? "paused" : `${V.toFixed(2)}×`;
+        if (TimeScaleLabel) TimeScaleLabel.textContent = V <= 0 ? "paused" : `${V.toFixed(2)}\u00d7`;
         SetStatBar("timescale", V / 2);
     } else if (Name === "bath") {
         const V = Math.round((T * 2) / 0.05) * 0.05;
@@ -127,16 +123,10 @@ function WireStatBars() {
         };
         Bar.addEventListener("pointerup", End);
         Bar.addEventListener("pointercancel", End);
-        // Click-anywhere on row also works
-        Row.addEventListener("pointerdown", (Event) => {
-            if (Event.target.closest(".StatBar")) return;
-            // ignore pure label clicks unless on bar area - optional
-        });
     });
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", WireStatBars);
 else WireStatBars();
-
 
 const Tooltip = document.querySelector(".Tooltip");
 const ContextMenu = document.getElementById("ContextMenu");
@@ -165,6 +155,7 @@ const ResizeCanvas = () => {
     if (CanvasRenderer) CanvasRenderer.Resize();
     ClampAllWidgets();
     PositionDisplayMenu();
+    PositionPeriodicTable();
 };
 window.addEventListener("resize", ResizeCanvas);
 window.addEventListener("orientationchange", () => setTimeout(ResizeCanvas, 120));
@@ -234,7 +225,7 @@ let ThrowVelocity = [0, 0, 0];
 let DragSamples = [];
 const DragSampleWindowMs = 60;
 
-const UiSelector = ".Area, .ContextMenu, .Tooltip, .PluginWidget, .PluginDock, .DropdownMenu, .MobileBar, .TouchControls, .SpawnMenu, .SettingsPanel, button, select, input, label, textarea, canvas.WGraph";
+const UiSelector = ".Area, .ContextMenu, .Tooltip, .PluginWidget, .PluginDock, .DropdownMenu, .MobileBar, .TouchControls, .SpawnMenu, .SettingsPanel, .PeriodicTablePanel, button, select, input, label, textarea, canvas.WGraph";
 
 const IsTouchDevice = (typeof window !== "undefined") && (
     "ontouchstart" in window ||
@@ -318,7 +309,6 @@ window.addEventListener("resize", () => {
     PositionModelSubMenu();
 }, { passive: true });
 
-
 function PositionDisplayMenu() {
     if (!DisplayMenu || !DisplayButton || DisplayMenu.hidden) return;
     const Rect = DisplayButton.getBoundingClientRect();
@@ -378,7 +368,6 @@ function SetModelStyle(Style) {
 function SetDisplayMode(Mode, ModelStyle) {
     if (CanvasRenderer) {
         if (Mode === "model") {
-            // Keep overlay mode none while applying a geometry model
             CanvasRenderer.DisplayMode = "none";
             if (ModelStyle) CanvasRenderer.ModelStyle = ModelStyle;
             else if (!CanvasRenderer.ModelStyle) CanvasRenderer.ModelStyle = "ballstick";
@@ -386,7 +375,6 @@ function SetDisplayMode(Mode, ModelStyle) {
             CanvasRenderer.DisplayMode = Mode;
         }
     }
-    const ModelItems = [...document.querySelectorAll("#DisplayDropdownMenu .ModelItem")];
     const FlatItems = DisplayItems.filter((I) => !I.classList.contains("ModelItem") && !I.classList.contains("DropdownSubTrigger"));
     for (const Item of FlatItems) {
         const Active = Item.dataset.mode === Mode && Mode !== "model";
@@ -632,7 +620,7 @@ window.addEventListener("mousemove", (Event) => {
     }
 
     if (IsTouchDevice) return;
-    if (Event.target && Event.target.closest && Event.target.closest(".PluginWidget, .PluginDock")) {
+    if (Event.target && Event.target.closest && Event.target.closest(".PluginWidget, .PluginDock, .PeriodicTablePanel")) {
         if (Tooltip) Tooltip.style.opacity = "0";
         return;
     }
@@ -712,6 +700,7 @@ window.addEventListener("keydown", (Event) => {
         if (Event.code === "Escape") {
             HideContextMenu();
             CloseDisplayMenu();
+            ClosePeriodicTable();
             const SpawnMenu = document.getElementById("SpawnMenu");
             if (SpawnMenu) SpawnMenu.hidden = true;
             document.activeElement?.blur?.();
@@ -722,6 +711,7 @@ window.addEventListener("keydown", (Event) => {
     if (Event.code === "Escape") {
         HideContextMenu();
         CloseDisplayMenu();
+        ClosePeriodicTable();
         const SpawnMenu = document.getElementById("SpawnMenu");
         if (SpawnMenu) {
             SpawnMenu.hidden = true;
@@ -827,7 +817,7 @@ if (ContextMenu) {
 
 window.addEventListener("wheel", (Event) => {
     if (Event.target && Event.target.closest && Event.target.closest(
-        ".Area, .DropdownMenu, .PluginWidget, .ContextMenu, .SettingsPanel, .SpawnMenu, .PluginDockMenu, .SceneList, .SceneCommentsFull, input, textarea, select"
+        ".Area, .DropdownMenu, .PluginWidget, .ContextMenu, .SettingsPanel, .SpawnMenu, .PeriodicTablePanel, .PluginDockMenu, .SceneList, .SceneCommentsFull, input, textarea, select"
     )) return;
     Event.preventDefault();
     if (Event.ctrlKey) {
@@ -974,8 +964,6 @@ globalThis.MolTouch = {
     GetJoystick() { return JoystickSmoothed; },
     GetVertical() { return VerticalSmoothed; }
 };
-
-// Do not auto-show; open the Touch Controls plugin instead.
 
 function ResetJoystick() {
     JoystickPointer = null;
@@ -1164,6 +1152,7 @@ if (IsTouchDevice) {
     Canvas.addEventListener("touchstart", (Event) => {
         HideContextMenu();
         ClosePanels();
+        ClosePeriodicTable();
         if (Event.touches.length === 1) {
             Event.preventDefault();
             const T = Event.touches[0];
@@ -1387,7 +1376,6 @@ function OrderedElementKeys(Counts) {
     const Keys = Object.keys(Counts);
     const HasC = Object.prototype.hasOwnProperty.call(Counts, "C");
     if (HasC) {
-        // Hill system: C, H, then alphabetical
         return Keys.sort((A, B) => {
             if (A === "C") return -1;
             if (B === "C") return 1;
@@ -1396,7 +1384,6 @@ function OrderedElementKeys(Counts) {
             return A.localeCompare(B);
         });
     }
-    // Inorganic / no carbon: lower electronegativity first (UF, HF, H2O)
     return Keys.sort((A, B) => {
         const EnA = (typeof Atoms !== "undefined" && Atoms[A] && Atoms[A].Electronegativity != null)
             ? Atoms[A].Electronegativity : 99;
@@ -1575,7 +1562,6 @@ function UpdateHierarchy(ForceRebuild = false) {
         Fragments.push(GroupEl);
     };
 
-    // Merge identical molecular formulas so labels read like 2H2O
     const FormulaBuckets = new Map();
     for (const Indices of MoleculeEntries) {
         const Sig = FormulaSignature(Indices);
@@ -1656,6 +1642,13 @@ if (HierarchyExpandAllBtn) {
 SyncHierarchyForceButtons();
 
 const AtomSelect = document.getElementById("AtomSelect");
+const AtomSelectBtn = document.getElementById("AtomSelectBtn");
+const AtomSelectSymbol = document.getElementById("AtomSelectSymbol");
+const AtomSelectName = document.getElementById("AtomSelectName");
+const PeriodicTablePanel = document.getElementById("PeriodicTablePanel");
+const PeriodicTableGrid = document.getElementById("PeriodicTableGrid");
+const PeriodicTableHint = document.getElementById("PeriodicTableHint");
+const PeriodicTableClose = document.getElementById("PeriodicTableClose");
 const SpawnAtomBtn = document.getElementById("SpawnAtomBtn");
 const SpawnOptsBtn = document.getElementById("SpawnOptsBtn");
 const SpawnMenu = document.getElementById("SpawnMenu");
@@ -1670,8 +1663,172 @@ const SpawnRandomVelEl = document.getElementById("SpawnRandomVel");
 const SpawnChargeEl = document.getElementById("SpawnCharge");
 const SpawnSettleEl = document.getElementById("SpawnSettle");
 
+const PeriodicAlkali = new Set(["Li", "Na", "K", "Rb", "Cs", "Fr"]);
+const PeriodicAlkaline = new Set(["Be", "Mg", "Ca", "Sr", "Ba", "Ra"]);
+const PeriodicNoble = new Set(["He", "Ne", "Ar", "Kr", "Xe", "Rn", "Og"]);
+const PeriodicHalogen = new Set(["F", "Cl", "Br", "I", "At", "Ts"]);
+const PeriodicMetalloid = new Set(["B", "Si", "Ge", "As", "Sb", "Te"]);
+const PeriodicNonmetal = new Set(["H", "C", "N", "O", "P", "S", "Se"]);
+const PeriodicPost = new Set(["Al", "Ga", "In", "Sn", "Tl", "Pb", "Bi", "Po", "Nh", "Fl", "Mc", "Lv"]);
+
+function PeriodicCategory(Key, Z) {
+    if (Z >= 57 && Z <= 71) return "lanthanide";
+    if (Z >= 89 && Z <= 103) return "actinide";
+    if (PeriodicAlkali.has(Key)) return "alkali";
+    if (PeriodicAlkaline.has(Key)) return "alkaline";
+    if (PeriodicNoble.has(Key)) return "noble";
+    if (PeriodicHalogen.has(Key)) return "halogen";
+    if (PeriodicMetalloid.has(Key)) return "metalloid";
+    if (PeriodicNonmetal.has(Key)) return "nonmetal";
+    if (PeriodicPost.has(Key)) return "post";
+    return "transition";
+}
+
+function PeriodicPosition(Z) {
+    if (Z === 1) return [1, 1];
+    if (Z === 2) return [1, 18];
+    if (Z <= 4) return [2, Z - 2];
+    if (Z <= 10) return [2, Z + 8];
+    if (Z <= 12) return [3, Z - 10];
+    if (Z <= 18) return [3, Z];
+    if (Z <= 36) return [4, Z - 18];
+    if (Z <= 54) return [5, Z - 36];
+    if (Z <= 56) return [6, Z - 54];
+    if (Z <= 71) return [9, Z - 54];
+    if (Z <= 86) return [6, Z - 68];
+    if (Z <= 88) return [7, Z - 86];
+    if (Z <= 103) return [10, Z - 86];
+    return [7, Z - 100];
+}
+
+function SyncAtomSelectUi() {
+    if (!AtomSelect || typeof Atoms === "undefined") return;
+    const Key = AtomSelect.value;
+    const Data = Atoms[Key];
+    if (AtomSelectSymbol) AtomSelectSymbol.textContent = Key || "?";
+    if (AtomSelectName) AtomSelectName.textContent = Data ? Data.Name : "";
+    if (PeriodicTableGrid) {
+        PeriodicTableGrid.querySelectorAll(".PtCell").forEach((Cell) => {
+            Cell.classList.toggle("active", Cell.dataset.key === Key);
+        });
+    }
+}
+
+function SelectElement(Key) {
+    if (!AtomSelect || typeof Atoms === "undefined" || !Atoms[Key]) return;
+    AtomSelect.value = Key;
+    SyncAtomSelectUi();
+}
+
+function PositionPeriodicTable() {
+    if (!PeriodicTablePanel || PeriodicTablePanel.hidden || !PeriodicTableGrid) return;
+    const Styles = getComputedStyle(PeriodicTablePanel);
+    const PadX = parseFloat(Styles.paddingLeft) + parseFloat(Styles.paddingRight);
+    const PadY = parseFloat(Styles.paddingTop) + parseFloat(Styles.paddingBottom);
+    const FlexGap = parseFloat(Styles.rowGap) || 0;
+    const Head = PeriodicTablePanel.querySelector(".PeriodicTableHead");
+    const HeadH = Head ? Head.offsetHeight : 28;
+    const HintH = PeriodicTableHint ? PeriodicTableHint.offsetHeight : 16;
+    const Compact = window.innerWidth <= 720;
+    const Margin = Compact ? 6 : 12;
+    const Gap = Compact ? 2 : 3;
+    const Spacer = 10;
+    const MaxW = Math.min(920, window.innerWidth - Margin * 2);
+    const MaxH = window.innerHeight - Margin * 2;
+    const SizeW = (MaxW - PadX - 2 - Gap * 17) / 18;
+    const SizeH = (MaxH - PadY - 2 - HeadH - HintH - FlexGap * 2 - Spacer - Gap * 9) / 9;
+    const Size = Math.max(14, Math.floor(Math.min(SizeW, SizeH, 56)));
+    const GridW = Size * 18 + Gap * 17;
+    const GridH = Size * 9 + Spacer + Gap * 9;
+    const PanelW = GridW + PadX + 2;
+    const PanelH = GridH + PadY + 2 + HeadH + HintH + FlexGap * 2;
+
+    PeriodicTableGrid.style.gap = `${Gap}px`;
+    PeriodicTableGrid.style.width = `${GridW}px`;
+    PeriodicTableGrid.style.height = `${GridH}px`;
+    PeriodicTableGrid.style.gridTemplateColumns = `repeat(18, ${Size}px)`;
+    PeriodicTableGrid.style.gridTemplateRows = `repeat(7, ${Size}px) ${Spacer}px repeat(2, ${Size}px)`;
+
+    const SymSize = Math.max(7, Math.floor(Size * 0.36));
+    const ZSize = Math.max(6, Math.floor(Size * 0.2));
+    PeriodicTableGrid.querySelectorAll(".PtSym").forEach((El) => { El.style.fontSize = `${SymSize}px`; });
+    PeriodicTableGrid.querySelectorAll(".PtZ").forEach((El) => { El.style.fontSize = `${ZSize}px`; });
+
+    const Left = Math.max(Margin, (window.innerWidth - PanelW) / 2);
+    const Top = Math.max(Margin, (window.innerHeight - PanelH) / 2);
+    PeriodicTablePanel.style.setProperty("width", `${PanelW}px`, "important");
+    PeriodicTablePanel.style.setProperty("height", `${PanelH}px`, "important");
+    PeriodicTablePanel.style.setProperty("max-height", "none", "important");
+    PeriodicTablePanel.style.setProperty("overflow", "hidden", "important");
+    PeriodicTablePanel.style.setProperty("left", `${Left}px`, "important");
+    PeriodicTablePanel.style.setProperty("top", `${Top}px`, "important");
+}
+
+function OpenPeriodicTable() {
+    if (!PeriodicTablePanel) return;
+    HideContextMenu();
+    CloseDisplayMenu();
+    CloseSpawnMenu();
+    PeriodicTablePanel.hidden = false;
+    if (AtomSelectBtn) AtomSelectBtn.setAttribute("aria-expanded", "true");
+    const Key = AtomSelect ? AtomSelect.value : "";
+    const Data = typeof Atoms !== "undefined" ? Atoms[Key] : null;
+    if (PeriodicTableHint) PeriodicTableHint.textContent = Data ? `${Data.AtomicNumber} - ${Data.Name}` : "Select an element to spawn.";
+    SyncAtomSelectUi();
+    PositionPeriodicTable();
+}
+
+function ClosePeriodicTable() {
+    if (!PeriodicTablePanel || PeriodicTablePanel.hidden) return;
+    PeriodicTablePanel.hidden = true;
+    if (AtomSelectBtn) AtomSelectBtn.setAttribute("aria-expanded", "false");
+}
+
+function BuildPeriodicTable() {
+    if (!PeriodicTableGrid || typeof Atoms === "undefined") return;
+    const Entries = Object.entries(Atoms).sort((A, B) => A[1].AtomicNumber - B[1].AtomicNumber);
+    const Fragment = document.createDocumentFragment();
+    for (const [Key, Data] of Entries) {
+        const Z = Data.AtomicNumber;
+        const [Row, Col] = PeriodicPosition(Z);
+        const Cell = document.createElement("button");
+        Cell.type = "button";
+        Cell.className = `PtCell ${PeriodicCategory(Key, Z)}`;
+        Cell.dataset.key = Key;
+        Cell.title = `${Data.Name} (${Z})`;
+        Cell.style.gridRow = String(Row);
+        Cell.style.gridColumn = String(Col);
+        Cell.style.width = "100%";
+        Cell.style.height = "100%";
+        Cell.style.aspectRatio = "auto";
+        Cell.style.minHeight = "0";
+        const ZEl = document.createElement("span");
+        ZEl.className = "PtZ";
+        ZEl.textContent = String(Z);
+        const SymEl = document.createElement("span");
+        SymEl.className = "PtSym";
+        SymEl.textContent = Key;
+        Cell.appendChild(ZEl);
+        Cell.appendChild(SymEl);
+        Cell.addEventListener("mouseenter", () => {
+            if (PeriodicTableHint) PeriodicTableHint.textContent = `${Z} - ${Data.Name}`;
+        });
+        Cell.addEventListener("focus", () => {
+            if (PeriodicTableHint) PeriodicTableHint.textContent = `${Z} - ${Data.Name}`;
+        });
+        Cell.addEventListener("click", (Event) => {
+            Event.stopPropagation();
+            SelectElement(Key);
+            ClosePeriodicTable();
+            if (AtomSelectBtn) AtomSelectBtn.focus({ preventScroll: true });
+        });
+        Fragment.appendChild(Cell);
+    }
+    PeriodicTableGrid.replaceChildren(Fragment);
+}
+
 if (AtomSelect && typeof Atoms !== "undefined") {
-    const Common = ["H","C","N","O","F","Na","Mg","Si","P","S","Cl","Fe","Cu","Zn","Br","I","Au","U"];
+    const Common = ["H", "C", "N", "O", "F", "Na", "Mg", "Si", "P", "S", "Cl", "Fe", "Cu", "Zn", "Br", "I", "Au", "U"];
     const AllKeys = Object.keys(Atoms);
     const Ordered = [
         ...Common.filter((K) => Atoms[K]),
@@ -1684,6 +1841,38 @@ if (AtomSelect && typeof Atoms !== "undefined") {
         AtomSelect.appendChild(Opt);
     }
     AtomSelect.value = "C";
+    AtomSelect.addEventListener("change", SyncAtomSelectUi);
+}
+
+BuildPeriodicTable();
+SyncAtomSelectUi();
+
+if (AtomSelectBtn && PeriodicTablePanel) {
+    AtomSelectBtn.addEventListener("click", (Event) => {
+        Event.stopPropagation();
+        if (PeriodicTablePanel.hidden) OpenPeriodicTable();
+        else ClosePeriodicTable();
+    });
+    PeriodicTablePanel.addEventListener("mousedown", (Event) => Event.stopPropagation());
+    PeriodicTablePanel.addEventListener("click", (Event) => Event.stopPropagation());
+    document.addEventListener("mousedown", (Event) => {
+        if (PeriodicTablePanel.hidden) return;
+        if (Event.target.closest("#PeriodicTablePanel, #AtomSelectBtn")) return;
+        ClosePeriodicTable();
+    });
+    document.addEventListener("touchstart", (Event) => {
+        if (PeriodicTablePanel.hidden) return;
+        if (Event.target.closest && Event.target.closest("#PeriodicTablePanel, #AtomSelectBtn")) return;
+        ClosePeriodicTable();
+    }, { passive: true });
+}
+
+if (PeriodicTableClose) {
+    PeriodicTableClose.addEventListener("click", (Event) => {
+        Event.stopPropagation();
+        ClosePeriodicTable();
+        if (AtomSelectBtn) AtomSelectBtn.focus({ preventScroll: true });
+    });
 }
 
 const SpawnOpts = {
@@ -1750,6 +1939,7 @@ if (SpawnOptsBtn && SpawnMenu) {
         SpawnOptsBtn.setAttribute("aria-expanded", Open ? "true" : "false");
         if (Open) {
             HideContextMenu();
+            ClosePeriodicTable();
             PositionSpawnMenu();
         }
     });
@@ -1796,7 +1986,6 @@ function SpawnOffset(I, Count, Spacing, Pattern) {
             (Math.random() - 0.5) * Spacing * 3
         ];
     }
-    // cluster
     return [
         (Math.random() - 0.5) * Spacing * 0.7,
         (Math.random() - 0.5) * Spacing * 0.7,
@@ -1871,7 +2060,6 @@ function WireBound(Id, Axis) {
         Prefs["Bound" + Axis] = V;
         if (CanvasRenderer) CanvasRenderer["Boundary" + Axis] = V;
     };
-    // Keep fields populated from Prefs / renderer
     const Initial = Prefs["Bound" + Axis] ?? (CanvasRenderer ? CanvasRenderer["Boundary" + Axis] : 300) ?? 300;
     El.value = String(Math.round(Initial));
     El.addEventListener("input", Apply);
@@ -1890,9 +2078,6 @@ WireBound("PrefBoundX", "X");
 WireBound("PrefBoundY", "Y");
 WireBound("PrefBoundZ", "Z");
 
-// Re-sync bound fields once renderer is ready
-const _PrevBoot = BootRenderer;
-// note: BootRenderer already ran as promise - sync after a microtask if renderer exists
 queueMicrotask(() => {
     for (const [Id, Axis] of [["PrefBoundX", "X"], ["PrefBoundY", "Y"], ["PrefBoundZ", "Z"]]) {
         const El = document.getElementById(Id);
@@ -1936,7 +2121,6 @@ if (PrefFrictionEl) {
     });
 }
 
-
 let LastFrameTime = performance.now();
 let FrameCounter = 0;
 let FpsTimer = 0;
@@ -1955,7 +2139,7 @@ const Update = () => {
     if (DeltaTimeLabel) DeltaTimeLabel.textContent = `${DeltaTime.toFixed(1)}ms`;
     if (TimeScaleLabel) {
         const Ts = CanvasRenderer.TargetTimeScale;
-        TimeScaleLabel.textContent = Ts <= 0 ? "paused" : `${Ts.toFixed(2)}×`;
+        TimeScaleLabel.textContent = Ts <= 0 ? "paused" : `${Ts.toFixed(2)}\u00d7`;
         SetStatBar("timescale", Ts / 2);
     }
     if (TemperatureLabel) {
@@ -2001,7 +2185,6 @@ function MakeStepArrow(Dir) {
     Svg.setAttribute("aria-hidden", "true");
     Svg.classList.add("NumStepSvg");
     const Path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    // Up: point top, Down: point bottom
     Path.setAttribute("d", Dir > 0 ? "M1 6.5 L6 1.5 L11 6.5" : "M1 1.5 L6 6.5 L11 1.5");
     Path.setAttribute("fill", "none");
     Path.setAttribute("stroke", "currentColor");
@@ -2015,7 +2198,7 @@ function MakeStepArrow(Dir) {
 function EnhanceNumberFields(Root = document) {
     const Candidates = Root.querySelectorAll('input[type="number"]');
     for (const Input of Candidates) {
-        if (Input.closest(".WStepper")) continue; // already has +/- buttons
+        if (Input.closest(".WStepper")) continue;
         if (Input.dataset.stepperWired === "1") continue;
 
         let Field = Input.closest(".NumField");
@@ -2056,7 +2239,6 @@ function EnhanceNumberFields(Root = document) {
                 let V = Number(Input.value);
                 if (!isFinite(V)) V = isFinite(Min) ? Min : 0;
                 V = V + Dir * StepVal;
-                // snap
                 const Precision = Math.max(0, (String(StepVal).split(".")[1] || "").length);
                 const Scale = Math.pow(10, Precision);
                 V = Math.round(V * Scale / (StepVal * Scale)) * StepVal;
@@ -2088,8 +2270,6 @@ if (typeof MutationObserver !== "undefined") {
     NumObs.observe(document.body, { childList: true, subtree: true });
 }
 
-
-/* ΓÇöΓÇöΓÇö Settings + localStorage persistence ΓÇöΓÇöΓÇö */
 const STORAGE_KEY = "mol.settings.v1";
 const SCENE_KEY = "mol.scene.v1";
 
@@ -2246,7 +2426,6 @@ function LoadSettings() {
 
         if (SettingsState.PreserveDisplay && Data.DisplayMode && typeof SetDisplayMode === "function") {
             SetDisplayMode(Data.DisplayMode);
-            // update dropdown UI
             document.querySelectorAll("#DisplayDropdownMenu .DropdownItem").forEach((Item) => {
                 Item.classList.toggle("active", Item.dataset.mode === Data.DisplayMode);
             });
@@ -2261,6 +2440,7 @@ function LoadSettings() {
             const S = Data.Spawn;
             const SetVal = (Id, V) => { const El = document.getElementById(Id); if (El && V != null) El.value = V; };
             SetVal("AtomSelect", S.Element);
+            SyncAtomSelectUi();
             SetVal("SpawnCount", S.Count);
             SetVal("SpawnPattern", S.Pattern);
             SetVal("SpawnSpacing", S.Spacing);
@@ -2324,7 +2504,7 @@ function LoadSettings() {
                     if (Entry && typeof Entry.Open === "function") {
                         try {
                             globalThis.Plugin.Emit?.("OpenPlugin", { Id });
-                            Entry.Open(globalThis.Plugin /* context incomplete - dock click better */);
+                            Entry.Open(globalThis.Plugin);
                         } catch (Err) {}
                     }
                     const Item = document.querySelector(`.PluginDockItem[data-plugin-id="${Id}"]`);
@@ -2420,14 +2600,9 @@ function WireSettingsPanel() {
 }
 
 WireSettingsPanel();
-// Load after renderer boots
-const _BootPromise = (typeof BootRenderer === "function") ? null : null;
 setTimeout(() => LoadSettings(), 500);
 
-
-/* ——— Profile favicon morph + cloud account UI ——— */
 const DefaultFaviconHref = "Images/Favicon.svg";
-let FaviconMorphRaf = 0;
 
 function GetDashFavicons() {
     return [
@@ -2467,7 +2642,6 @@ function MorphFaviconToProfile(User, DurationMs = 1100) {
             return;
         }
         Parent.classList.add("FaviconHost");
-        // Measure base icon box
         const Rect = Img.getBoundingClientRect();
         const Size = Math.max(16, Math.round(Rect.width || 18));
 
@@ -2483,10 +2657,8 @@ function MorphFaviconToProfile(User, DurationMs = 1100) {
         Overlay.style.height = Size + "px";
         Overlay.style.borderRadius = "50%";
 
-        // Phase 1: base fades out slightly, overlay fades in + scales
         Img.classList.add("FaviconOut");
         Overlay.classList.remove("Show");
-        // force reflow
         void Overlay.offsetWidth;
         Overlay.classList.add("Show");
 
@@ -2540,7 +2712,7 @@ function WireCloudUi() {
     const CreateBtn = document.getElementById("AccCreate");
     const LogoutBtn = document.getElementById("AccLogout");
     const Hint = document.getElementById("AccountHint");
-    const setHint = (T, Ok) => {
+    const SetHint = (T, Ok) => {
         if (!Hint) return;
         Hint.textContent = T || "";
         Hint.style.color = Ok ? "rgba(120,220,160,0.9)" : "rgba(255,140,140,0.9)";
@@ -2551,10 +2723,10 @@ function WireCloudUi() {
             const Name = document.getElementById("AccName")?.value;
             const Pass = document.getElementById("AccPass")?.value;
             await globalThis.MolCloud.Login(Name, Pass);
-            setHint("Logged in.", true);
+            SetHint("Logged in.", true);
             SyncAccountUi();
         } catch (Err) {
-            setHint(Err.message || String(Err), false);
+            SetHint(Err.message || String(Err), false);
         }
     });
     CreateBtn?.addEventListener("click", async () => {
@@ -2562,15 +2734,15 @@ function WireCloudUi() {
             const Name = document.getElementById("AccName")?.value;
             const Pass = document.getElementById("AccPass")?.value;
             await globalThis.MolCloud.CreateAccount(Name, Pass);
-            setHint("Account created.", true);
+            SetHint("Account created.", true);
             SyncAccountUi();
         } catch (Err) {
-            setHint(Err.message || String(Err), false);
+            SetHint(Err.message || String(Err), false);
         }
     });
     LogoutBtn?.addEventListener("click", () => {
         globalThis.MolCloud.Logout();
-        setHint("Logged out.", true);
+        SetHint("Logged out.", true);
         SyncAccountUi();
     });
 
