@@ -2124,6 +2124,10 @@ if (PrefFrictionEl) {
 let LastFrameTime = performance.now();
 let FrameCounter = 0;
 let FpsTimer = 0;
+let UiUpdateTimer = 0;
+let HierarchyUpdateTimer = 0;
+const UiUpdateInterval = 120;
+const HierarchyUpdateInterval = 120;
 
 const Update = () => {
     if (!CanvasRenderer) {
@@ -2135,30 +2139,37 @@ const Update = () => {
     LastFrameTime = Now;
     FrameCounter++;
     FpsTimer += DeltaTime;
+    UiUpdateTimer += DeltaTime;
+    HierarchyUpdateTimer += DeltaTime;
 
-    if (DeltaTimeLabel) DeltaTimeLabel.textContent = `${DeltaTime.toFixed(1)}ms`;
-    if (TimeScaleLabel) {
-        const Ts = CanvasRenderer.TargetTimeScale;
-        TimeScaleLabel.textContent = Ts <= 0 ? "paused" : `${Ts.toFixed(2)}\u00d7`;
-        SetStatBar("timescale", Ts / 2);
+    if (UiUpdateTimer >= UiUpdateInterval) {
+        UiUpdateTimer = 0;
+        if (DeltaTimeLabel) DeltaTimeLabel.textContent = `${DeltaTime.toFixed(1)}ms`;
+        if (TimeScaleLabel) {
+            const Ts = CanvasRenderer.TargetTimeScale;
+            TimeScaleLabel.textContent = Ts <= 0 ? "paused" : `${Ts.toFixed(2)}\u00d7`;
+            SetStatBar("timescale", Ts / 2);
+        }
+        if (TemperatureLabel) {
+            let SumKe = 0;
+            const Count = Objects.length;
+            for (let I = 0; I < Count; I++) SumKe += Objects[I].KineticEnergy || 0;
+            const AvgKe = Count > 0 ? SumKe / Count : 0;
+            const SysT = AvgKe * 0.12;
+            TemperatureLabel.textContent = SysT.toFixed(2);
+            SetStatBar("systemp", Math.min(1, SysT / 2));
+        }
+        if (BathTempLabel) {
+            const Bath = CanvasRenderer.Temperature;
+            BathTempLabel.textContent = Bath.toFixed(2);
+            SetStatBar("bath", Bath / 2);
+        }
+        if (FrictionValLabel && CanvasRenderer.Friction != null) {
+            FrictionValLabel.textContent = Number(CanvasRenderer.Friction).toFixed(2);
+            SetStatBar("friction", CanvasRenderer.Friction);
+        }
     }
-    if (TemperatureLabel) {
-        let SumKe = 0;
-        for (const O of Objects) SumKe += O.KineticEnergy || 0;
-        const AvgKe = Objects.length > 0 ? SumKe / Objects.length : 0;
-        const SysT = AvgKe * 0.12;
-        TemperatureLabel.textContent = SysT.toFixed(2);
-        SetStatBar("systemp", SysT / 2);
-    }
-    if (BathTempLabel) {
-        const Bath = CanvasRenderer.Temperature;
-        BathTempLabel.textContent = Bath.toFixed(2);
-        SetStatBar("bath", Bath / 2);
-    }
-    if (FrictionValLabel && CanvasRenderer.Friction != null) {
-        FrictionValLabel.textContent = Number(CanvasRenderer.Friction).toFixed(2);
-        SetStatBar("friction", CanvasRenderer.Friction);
-    }
+
     if (FpsTimer >= 1000) {
         const Fps = Math.round((FrameCounter * 1000) / FpsTimer);
         if (FramerateLabel) FramerateLabel.textContent = `${Fps}/s`;
@@ -2169,7 +2180,10 @@ const Update = () => {
 
     CanvasRenderer.DraggedObject = (IsInteracting && SelectedObject) ? SelectedObject : null;
 
-    UpdateHierarchy();
+    if (HierarchyUpdateTimer >= HierarchyUpdateInterval || HierarchyPointerDown) {
+        HierarchyUpdateTimer = 0;
+        UpdateHierarchy();
+    }
     UpdateCamera();
     CanvasRenderer.Render();
 

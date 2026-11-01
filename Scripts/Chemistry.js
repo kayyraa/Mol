@@ -471,6 +471,9 @@ Chemistry.ChemicalStability = function (Key, BondOrderSum) {
 
 Chemistry.BondAffinity = function (KeyA, KeyB) {
     if (NobleGasSet.has(KeyA) || NobleGasSet.has(KeyB)) return 0;
+    const Metals = globalThis.Metals;
+    const BothMetal = Metals && Metals.has(KeyA) && Metals.has(KeyB);
+    if (BothMetal) return KeyA === KeyB ? 0.88 : 0.82;
     if (KeyA === KeyB) return 0.72;
     const WantA = Chemistry.ElectronWant(KeyA);
     const WantB = Chemistry.ElectronWant(KeyB);
