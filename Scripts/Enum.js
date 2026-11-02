@@ -597,7 +597,7 @@ globalThis.GetBondInfo = function(KeyA, KeyB) {
 
     const Metals = globalThis.Metals;
     const BothMetals = Metals && Metals.has(KeyA) && Metals.has(KeyB);
-    if (BothMetals) return { energy: 200, stability: 0.85, explosive: 0.02, Metallic: true };
+    if (BothMetals) return { energy: 165, stability: 0.93, explosive: 0.012, Metallic: true };
 
     const MetalHalide = Metals && (
         (Metals.has(KeyA) && ["F","Cl","Br","I","At"].includes(KeyB)) ||
@@ -716,8 +716,8 @@ globalThis.Renderer = class {
         this.IonicCoordination = 6;
         this.MetalCoordination = 12;
         this.IonicChargeThreshold = 0.7;
-        this.MetallicConstraintIterations = 14;
-        this.MetallicConstraintStrength = 0.92;
+        this.MetallicConstraintIterations = 7;
+        this.MetallicConstraintStrength = 0.62;
 
         this.Grid = new SpatialGrid(300);
         this.AngleNeighborMap = new Map();
@@ -877,8 +877,9 @@ globalThis.Renderer = class {
                     const Key = IndexA < IndexB ? `${IndexA}_${IndexB}` : `${IndexB}_${IndexA}`;
                     const IsMetallic = !!(Info.Metallic && Metals && Metals.has(AtomA.Key) && Metals.has(AtomB.Key));
                     const WasBonded = this.PreviousBondPairs.has(Key);
-                    const ScoreBoost = (IsMetallic && WasBonded) ? 2.5 : (WasBonded ? 1.4 : 1.0);
+                    const ScoreBoost = IsMetallic ? (WasBonded ? 3.4 : 2.1) : (WasBonded ? 1.4 : 1.0);
                     let Score = Info.stability * StretchFactor * (Info.energy / 400) * ScoreBoost * (0.35 + 0.65 * Affinity);
+                    if (IsMetallic) Score *= 1.35;
                     const Ka = AtomA.Key, Kb = AtomB.Key;
                     const Halogens = { F:1, Cl:1, Br:1, I:1 };
                     const HPolar = (Ka === "H" && (Kb === "F" || Kb === "O" || Kb === "N" || Kb === "Cl" || Kb === "Br" || Kb === "I"))
@@ -1007,7 +1008,7 @@ globalThis.Renderer = class {
             };
 
             if (Forced) {
-                if (Prev && Prev.eqDist) {
+                if (Prev && Prev.eqDist && (Prev.order || 1) > 1) {
                     EqDist = Prev.eqDist;
                     Order = Prev.order || 1;
                     if (Prev.energy) UseInfo = {
@@ -1016,20 +1017,26 @@ globalThis.Renderer = class {
                         explosive: Prev.explosive ?? 0.05
                     };
                 } else if (IsMetallic || (Info && Info.Metallic) || (MetaA && MetaB)) {
-                    EqDist = Math.max(12, Distance * 0.98 + (AtomA.EffRadius + AtomB.EffRadius + 22) * 0.02);
-                    UseInfo = { energy: 280, stability: 0.96, explosive: 0.01, Metallic: true };
+                    EqDist = Math.max(14, (AtomA.EffRadius + AtomB.EffRadius) * 1.08 + 10);
+                    UseInfo = { energy: 175, stability: 0.94, explosive: 0.01, Metallic: true };
                 } else if (IsIonic || (Info && Info.Ionic)) {
                     EqDist = AtomA.EffRadius + AtomB.EffRadius + 6;
                     UseInfo = { energy: Info.energy || 380, stability: 0.96, explosive: 0.02, Ionic: true };
                 } else {
-                    const SlackA = Math.max(1, ValA - CountA);
-                    const SlackB = Math.max(1, ValB - CountB);
-                    if (globalThis.Chemistry && globalThis.Chemistry.ProposeBondOrder) {
-                        const Proposed = globalThis.Chemistry.ProposeBondOrder(
+                    const SlackA = Math.max(0, ValA - CountA);
+                    const SlackB = Math.max(0, ValB - CountB);
+                    let Proposed = 1;
+                    if (globalThis.Chemistry && globalThis.Chemistry.SuggestOrderFromValence) {
+                        Proposed = globalThis.Chemistry.SuggestOrderFromValence(
+                            AtomA.Key, AtomB.Key, SlackA, SlackB
+                        );
+                    }
+                    if (Proposed <= 1 && globalThis.Chemistry && globalThis.Chemistry.ProposeBondOrder) {
+                        Proposed = globalThis.Chemistry.ProposeBondOrder(
                             AtomA.Key, AtomB.Key, SlackA, SlackB, Distance, BaseEq
                         );
-                        ApplyOrdered(Proposed);
                     }
+                    if (Proposed > 1) ApplyOrdered(Proposed);
                     if (Order === 1) {
                         EqDist = Math.max(8, Math.min(BaseEq, Distance * 0.92 + BaseEq * 0.08));
                         UseInfo = {
@@ -1047,15 +1054,23 @@ globalThis.Renderer = class {
                 EqDist = AtomA.EffRadius + AtomB.EffRadius + 6;
                 UseInfo = { energy: Info.energy, stability: 0.96, explosive: 0.02, Ionic: true };
             } else if (IsMetallic) {
-                EqDist = AtomA.EffRadius + AtomB.EffRadius + 22;
-                UseInfo = { energy: 200, stability: 0.92, explosive: 0.02, Metallic: true };
-            } else if (globalThis.Chemistry && globalThis.Chemistry.ProposeBondOrder) {
-                const SlackA = ValA - CountA;
-                const SlackB = ValB - CountB;
-                const Proposed = globalThis.Chemistry.ProposeBondOrder(
-                    AtomA.Key, AtomB.Key, SlackA, SlackB, Distance, BaseEq
-                );
-                ApplyOrdered(Proposed);
+                EqDist = Math.max(14, (AtomA.EffRadius + AtomB.EffRadius) * 1.08 + 10);
+                UseInfo = { energy: 165, stability: 0.93, explosive: 0.012, Metallic: true };
+            } else if (globalThis.Chemistry) {
+                const SlackA = Math.max(0, ValA - CountA);
+                const SlackB = Math.max(0, ValB - CountB);
+                let Proposed = 1;
+                if (globalThis.Chemistry.SuggestOrderFromValence) {
+                    Proposed = globalThis.Chemistry.SuggestOrderFromValence(
+                        AtomA.Key, AtomB.Key, SlackA, SlackB
+                    );
+                }
+                if (Proposed <= 1 && globalThis.Chemistry.ProposeBondOrder) {
+                    Proposed = globalThis.Chemistry.ProposeBondOrder(
+                        AtomA.Key, AtomB.Key, SlackA, SlackB, Distance, BaseEq
+                    );
+                }
+                if (Proposed > 1) ApplyOrdered(Proposed);
             }
 
             const CostPreview = (IsHydrogen ? 0 : Order);
@@ -1087,7 +1102,7 @@ globalThis.Renderer = class {
             if (Forced) FormMul = 4.2 + this.Temperature * 0.15;
             else if (BondType === "hydrogen") FormMul = 1.08 + Stab * 0.18 + this.Temperature * 0.08;
             else if (IsIonic) FormMul = 1.4 + Stab * 0.5 + EnergyNorm * 0.2 + this.Temperature * 0.12;
-            else if (IsMetallic) FormMul = 2.4 + Stab * 0.85 + EnergyNorm * 0.3 + this.Temperature * 0.12 + Math.min(0.4, PrevAge * 0.006);
+            else if (IsMetallic) FormMul = 2.15 + Stab * 0.7 + EnergyNorm * 0.25 + this.Temperature * 0.18 + Math.min(0.55, PrevAge * 0.008);
             else if (WasBonded) {
                 FormMul = 1.28 + Stab * 0.85 + EnergyNorm * 0.35 + this.Temperature * 0.12 + Math.min(0.3, PrevAge * 0.004);
             } else {
@@ -1170,9 +1185,83 @@ globalThis.Renderer = class {
             CommitBond(IndexA, IndexB, Distance, EquilibriumDistance, Info, false);
         }
 
+        this.RefineBondOrders(NewBondData, ValidBondPairs, BondCounts);
         this.BondData = NewBondData;
         this.ActiveBondPairs = ValidBondPairs;
         return ValidBondPositions;
+    }
+
+    RefineBondOrders(BondData, ValidPairs, BondCounts) {
+        if (!globalThis.Chemistry || !BondData || BondData.size === 0) return;
+        const Chem = globalThis.Chemistry;
+        if (!Chem.HasMultipleOrders || !Chem.GetOrderedBondInfo) return;
+
+        const Used = new Map();
+        for (const Obj of Objects) Used.set(Obj, 0);
+        for (const [, Data] of BondData) {
+            const A = Objects[Data.IndexA];
+            const B = Objects[Data.IndexB];
+            const Ord = Data.order || 1;
+            if (A) Used.set(A, (Used.get(A) || 0) + Ord);
+            if (B) Used.set(B, (Used.get(B) || 0) + Ord);
+        }
+
+        const Entries = [...BondData.entries()];
+        Entries.sort((X, Y) => {
+            const DX = X[1], DY = Y[1];
+            const Pref = (D) => {
+                const A = Objects[D.IndexA], B = Objects[D.IndexB];
+                if (!A || !B) return 0;
+                const Mult = Chem.HasMultipleOrders(A.Key, B.Key) ? 2 : 0;
+                return Mult + (D.Forced ? 1 : 0);
+            };
+            return Pref(DY) - Pref(DX);
+        });
+
+        for (const [Key, Data] of Entries) {
+            if (Data.BondType === "metallic" || Data.BondType === "ionic" || Data.BondType === "hydrogen") continue;
+            const A = Objects[Data.IndexA];
+            const B = Objects[Data.IndexB];
+            if (!A || !B) continue;
+            if (!Chem.HasMultipleOrders(A.Key, B.Key)) continue;
+
+            const ValA = A.Atom?.Valence || 1;
+            const ValB = B.Atom?.Valence || 1;
+            const UsedA = Used.get(A) || 0;
+            const UsedB = Used.get(B) || 0;
+            const CurOrder = Data.order || 1;
+            const SlackA = ValA - UsedA + CurOrder;
+            const SlackB = ValB - UsedB + CurOrder;
+            if (SlackA < 2 || SlackB < 2) continue;
+
+            let Target = CurOrder;
+            if (Chem.SuggestOrderFromValence) {
+                Target = Chem.SuggestOrderFromValence(A.Key, B.Key, SlackA, SlackB);
+            } else if (Chem.ProposeBondOrder) {
+                const Dist = Math.sqrt(
+                    (B.Position[0] - A.Position[0]) ** 2 +
+                    (B.Position[1] - A.Position[1]) ** 2 +
+                    (B.Position[2] - A.Position[2]) ** 2
+                );
+                const BaseEq = (A.EffRadius || 20) + (B.EffRadius || 20) + 28;
+                Target = Chem.ProposeBondOrder(A.Key, B.Key, SlackA, SlackB, Dist, BaseEq);
+            }
+            Target = Math.min(Target, SlackA, SlackB, Chem.MaxPossibleOrder ? Chem.MaxPossibleOrder(A.Key, B.Key) : 3);
+            if (Target <= CurOrder) continue;
+
+            const Ordered = Chem.GetOrderedBondInfo(A.Key, B.Key, Target);
+            const Single = Chem.GetOrderedBondInfo(A.Key, B.Key, 1);
+            if (!Ordered || !Single) continue;
+
+            Used.set(A, UsedA - CurOrder + Target);
+            Used.set(B, UsedB - CurOrder + Target);
+            Data.order = Target;
+            Data.energy = Ordered.energy;
+            Data.stability = Math.max(Data.stability || 0.5, Ordered.stability);
+            Data.explosive = 1 - Ordered.stability;
+            const BaseEq = (A.EffRadius || 20) + (B.EffRadius || 20) + 28;
+            Data.eqDist = BaseEq * (Ordered.length / Single.length);
+        }
     }
 
     GetBondAffinityCached(A, B) {
@@ -1793,8 +1882,8 @@ globalThis.Renderer = class {
                     if (BondType === "hydrogen") SpringStiffness = (0.45 + (EnergyCap / 400) * 0.6) * OrderBoost;
                     else if (BondType === "ionic") SpringStiffness = (2.4 + (EnergyCap / 400) * 3.2) * OrderBoost;
                     else if (BondType === "metallic") {
-                        SpringStiffness = (14.0 + (EnergyCap / 400) * 10.0) * OrderBoost;
-                        if (Data.Forced) SpringStiffness *= 1.35;
+                        SpringStiffness = (3.6 + (EnergyCap / 400) * 4.8) * OrderBoost;
+                        if (Data.Forced) SpringStiffness *= 1.12;
                     }
                     else {
                         SpringStiffness = (7.5 + (EnergyCap / 400) * 9.0) * Math.max(0.45, Stability) * OrderBoost;
@@ -3049,6 +3138,9 @@ globalThis.Renderer = class {
             this.LabelCtx.clearRect(0, 0, this.LabelCanvas.width / Dpr, this.LabelCanvas.height / Dpr);
         }
         this.DrawChargeMetaballs(VM, PM);
-        this.DrawIonLabels(VM, PM);
+        const AtomCount = Objects.length;
+        if (AtomCount < 80 || (this.BondsFrameCounter % 2) === 0) {
+            this.DrawIonLabels(VM, PM);
+        }
     }
 };

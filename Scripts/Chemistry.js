@@ -139,16 +139,18 @@ Chemistry.CoulombSoftening = 400;
 Chemistry.CoulombMaxForce = 120;
 
 const BondOrderTable = {
-    "C-C": { 1: { length: 154, energy: 346, stability: 0.95 }, 2: { length: 134, energy: 602, stability: 0.85 }, 3: { length: 120, energy: 835, stability: 0.80 } },
-    "C-N": { 1: { length: 147, energy: 305, stability: 0.88 }, 2: { length: 128, energy: 615, stability: 0.78 }, 3: { length: 116, energy: 887, stability: 0.72 } },
-    "C-O": { 1: { length: 143, energy: 358, stability: 0.90 }, 2: { length: 120, energy: 745, stability: 0.86 }, 3: { length: 113, energy: 1072, stability: 0.65 } },
+    "C-C": { 1: { length: 154, energy: 346, stability: 0.95 }, 2: { length: 134, energy: 602, stability: 0.88 }, 3: { length: 120, energy: 835, stability: 0.82 } },
+    "C-N": { 1: { length: 147, energy: 305, stability: 0.88 }, 2: { length: 128, energy: 615, stability: 0.82 }, 3: { length: 116, energy: 887, stability: 0.78 } },
+    "C-O": { 1: { length: 143, energy: 358, stability: 0.90 }, 2: { length: 120, energy: 745, stability: 0.90 }, 3: { length: 113, energy: 1072, stability: 0.70 } },
     "O-O": { 1: { length: 148, energy: 146, stability: 0.10 }, 2: { length: 121, energy: 498, stability: 0.55 } },
-    "N-N": { 1: { length: 145, energy: 167, stability: 0.15 }, 2: { length: 125, energy: 418, stability: 0.35 }, 3: { length: 110, energy: 945, stability: 0.90 } },
-    "N-O": { 1: { length: 140, energy: 201, stability: 0.55 }, 2: { length: 121, energy: 607, stability: 0.60 } },
-    "C-S": { 1: { length: 182, energy: 272, stability: 0.75 }, 2: { length: 160, energy: 573, stability: 0.70 } },
-    "S-O": { 1: { length: 157, energy: 265, stability: 0.70 }, 2: { length: 143, energy: 522, stability: 0.72 } },
-    "S-S": { 1: { length: 205, energy: 226, stability: 0.60 }, 2: { length: 189, energy: 425, stability: 0.45 } },
-    "P-O": { 1: { length: 160, energy: 335, stability: 0.75 }, 2: { length: 150, energy: 544, stability: 0.78 } }
+    "N-N": { 1: { length: 145, energy: 167, stability: 0.15 }, 2: { length: 125, energy: 418, stability: 0.40 }, 3: { length: 110, energy: 945, stability: 0.92 } },
+    "N-O": { 1: { length: 140, energy: 201, stability: 0.55 }, 2: { length: 121, energy: 607, stability: 0.65 } },
+    "C-S": { 1: { length: 182, energy: 272, stability: 0.75 }, 2: { length: 160, energy: 573, stability: 0.72 } },
+    "S-O": { 1: { length: 157, energy: 265, stability: 0.70 }, 2: { length: 143, energy: 522, stability: 0.74 } },
+    "S-S": { 1: { length: 205, energy: 226, stability: 0.60 }, 2: { length: 189, energy: 425, stability: 0.48 } },
+    "P-O": { 1: { length: 160, energy: 335, stability: 0.75 }, 2: { length: 150, energy: 544, stability: 0.80 } },
+    "C-P": { 1: { length: 184, energy: 264, stability: 0.70 }, 2: { length: 169, energy: 420, stability: 0.55 } },
+    "N-P": { 1: { length: 177, energy: 210, stability: 0.55 }, 2: { length: 157, energy: 380, stability: 0.50 } }
 };
 
 Chemistry.HasMultipleOrders = function (KeyA, KeyB) {
@@ -176,13 +178,52 @@ Chemistry.GetOrderedBondInfo = function (KeyA, KeyB, RequestedOrder) {
     };
 };
 
+Chemistry.MaxPossibleOrder = function (KeyA, KeyB) {
+    const A = KeyA < KeyB ? KeyA : KeyB;
+    const B = KeyA < KeyB ? KeyB : KeyA;
+    const Table = BondOrderTable[`${A}-${B}`];
+    if (!Table) return 1;
+    return Math.max(...Object.keys(Table).map(Number));
+};
+
 Chemistry.ProposeBondOrder = function (KeyA, KeyB, SlackA, SlackB, Distance, EquilibriumSingleLength) {
-    const MaxBySlack = Math.min(SlackA, SlackB, 3);
+    const MaxBySlack = Math.min(Math.max(0, SlackA | 0), Math.max(0, SlackB | 0), 3);
     if (MaxBySlack < 1) return 0;
     if (!Chemistry.HasMultipleOrders(KeyA, KeyB)) return 1;
-    const Closeness = Distance / EquilibriumSingleLength;
-    if (MaxBySlack >= 3 && Closeness < 0.82) return 3;
-    if (MaxBySlack >= 2 && Closeness < 0.90) return 2;
+
+    const MaxAvail = Chemistry.MaxPossibleOrder(KeyA, KeyB);
+    const Cap = Math.min(MaxBySlack, MaxAvail);
+    if (Cap <= 1) return 1;
+
+    const Eq = Math.max(8, EquilibriumSingleLength || 60);
+    const Closeness = Distance / Eq;
+
+    const PreferTriple = Cap >= 3 && (
+        Closeness < 0.92 ||
+        (KeyA === "C" && KeyB === "C") ||
+        (KeyA === "C" && KeyB === "N") ||
+        (KeyA === "N" && KeyB === "C") ||
+        (KeyA === "N" && KeyB === "N")
+    );
+    if (PreferTriple && Cap >= 3 && (Closeness < 1.05 || MaxBySlack >= 3)) return 3;
+
+    const PreferDouble = Cap >= 2 && (
+        Closeness < 1.08 ||
+        MaxBySlack >= 2
+    );
+    if (PreferDouble) return 2;
+
+    return 1;
+};
+
+Chemistry.SuggestOrderFromValence = function (KeyA, KeyB, RemainingA, RemainingB) {
+    const MaxBySlack = Math.min(Math.max(0, RemainingA | 0), Math.max(0, RemainingB | 0), 3);
+    if (MaxBySlack < 1) return 0;
+    if (!Chemistry.HasMultipleOrders(KeyA, KeyB)) return 1;
+    const MaxAvail = Chemistry.MaxPossibleOrder(KeyA, KeyB);
+    const Cap = Math.min(MaxBySlack, MaxAvail);
+    if (Cap >= 3 && (KeyA === "C" || KeyA === "N") && (KeyB === "C" || KeyB === "N")) return 3;
+    if (Cap >= 2) return 2;
     return 1;
 };
 

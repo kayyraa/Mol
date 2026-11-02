@@ -1,48 +1,52 @@
 (function AiHelperPlugin() {
-    // NOTE: rotate this key if it was ever committed publicly
     const GROQ_API_KEY = `${"gsk_"}${"zlpe8ckeeBSowWvIASzR"}${"WGdyb3FYhkMoxCCPrEWV"}${"G7cYzDmtN6cY"}`;
     const GROQ_MODELS = [
-        "qwen/qwen3.8-27b",
         "openai/gpt-oss-120b",
+        "qwen/qwen3.8-27b",
         "openai/gpt-oss-20b"
     ];
-    let GROQ_MODEL = GROQ_MODELS[1];
+    let GROQ_MODEL = GROQ_MODELS[0];
 
-    // Offline fallback catalog only — AI is free to invent any structure
     const MoleculeCatalog = [
         {
             Id: "h2",
-            Names: "hydrogen H2 dihydrogen H-H",
+            Names: "hydrogen H2 dihydrogen",
+            Formula: { H: 2 },
             Atoms: [["H", -35, 0, 0], ["H", 35, 0, 0]],
             Bonds: [[0, 1]]
         },
         {
             Id: "h2o",
-            Names: "water H2O dihydrogen monoxide",
+            Names: "water H2O",
+            Formula: { H: 2, O: 1 },
             Atoms: [["O", 0, 0, 0], ["H", 55, 40, 0], ["H", -55, 40, 0]],
             Bonds: [[0, 1], [0, 2]]
         },
         {
             Id: "ch4",
-            Names: "methane CH4 natural gas",
+            Names: "methane CH4",
+            Formula: { C: 1, H: 4 },
             Atoms: [["C", 0, 0, 0], ["H", 55, 55, 55], ["H", -55, -55, 55], ["H", 55, -55, -55], ["H", -55, 55, -55]],
             Bonds: [[0, 1], [0, 2], [0, 3], [0, 4]]
         },
         {
             Id: "co2",
-            Names: "carbon dioxide CO2 O=C=O",
+            Names: "carbon dioxide CO2",
+            Formula: { C: 1, O: 2 },
             Atoms: [["O", -70, 0, 0], ["C", 0, 0, 0], ["O", 70, 0, 0]],
             Bonds: [[0, 1], [1, 2]]
         },
         {
             Id: "nh3",
             Names: "ammonia NH3",
+            Formula: { N: 1, H: 3 },
             Atoms: [["N", 0, 0, 0], ["H", 55, 40, 20], ["H", -55, 40, 20], ["H", 0, -50, 20]],
             Bonds: [[0, 1], [0, 2], [0, 3]]
         },
         {
             Id: "nacl",
-            Names: "sodium chloride NaCl table salt rock salt",
+            Names: "sodium chloride NaCl salt",
+            Formula: { Na: 1, Cl: 1 },
             Atoms: [["Na", -55, 0, 0], ["Cl", 55, 0, 0]],
             Bonds: [[0, 1]],
             Charges: [1, -1]
@@ -81,7 +85,6 @@
             if (!Row || !Row.length) continue;
             const Key = String(Row[0] || "").trim();
             if (!Key) continue;
-            // Accept any element the simulator knows; unknown keys still spawn as generic
             const X = Number(Row[1]) || 0;
             const Y = Number(Row[2]) || 0;
             const Z = Number(Row[3]) || 0;
@@ -104,8 +107,8 @@
                 R.ForcedBonds.add(`${Lo}_${Hi}`);
             }
             R.BondsDirty = true;
-            R.SettleFrames = Math.max(R.SettleFrames || 0, 90);
-            R.Temperature = Math.min(R.Temperature ?? 0.35, 0.12);
+            R.SettleFrames = Math.max(R.SettleFrames || 0, 120);
+            R.Temperature = Math.min(R.Temperature ?? 0.35, 0.1);
         }
         return Indices.length;
     }
@@ -115,7 +118,6 @@
         if (typeof globalThis.Atom !== "function") return 0;
         Key = String(Key || "").trim();
         if (!Key) return 0;
-        // No whitelist — any element the Atom() factory accepts
         const N = Math.max(1, Math.min(80, Count | 0));
         for (let I = 0; I < N; I++) {
             const Ang = (I / N) * Math.PI * 2;
@@ -130,7 +132,6 @@
         return N;
     }
 
-    // Only hardcode clear. Everything else goes to the model.
     function TryLocalCommand(Text) {
         const Lower = Text.trim().toLowerCase();
         if (
@@ -141,6 +142,143 @@
             return "Cleared all atoms.";
         }
         return null;
+    }
+
+    function ParseFormulaString(S) {
+        if (!S || typeof S !== "string") return null;
+        const Clean = S.replace(/\s+/g, "").replace(/[^\w]/g, "");
+        if (!Clean) return null;
+        const Map = {};
+        const Re = /([A-Z][a-z]?)(\d*)/g;
+        let M;
+        let Any = false;
+        while ((M = Re.exec(Clean)) !== null) {
+            const El = M[1];
+            const N = M[2] ? parseInt(M[2], 10) : 1;
+            if (!El || !isFinite(N) || N < 1) continue;
+            Map[El] = (Map[El] || 0) + N;
+            Any = true;
+        }
+        return Any ? Map : null;
+    }
+
+    function FormulaToString(Map) {
+        if (!Map) return "";
+        const Order = ["C", "H", "N", "O", "P", "S", "F", "Cl", "Br", "I"];
+        const Parts = [];
+        for (const El of Order) {
+            if (Map[El]) Parts.push(El + (Map[El] > 1 ? Map[El] : ""));
+        }
+        for (const El of Object.keys(Map).sort()) {
+            if (Order.includes(El)) continue;
+            Parts.push(El + (Map[El] > 1 ? Map[El] : ""));
+        }
+        return Parts.join("");
+    }
+
+    function CountAtomsFromList(Atoms) {
+        const Map = {};
+        if (!Array.isArray(Atoms)) return Map;
+        for (const Row of Atoms) {
+            if (!Row || !Row.length) continue;
+            const El = String(Row[0] || "").trim();
+            if (!El) continue;
+            Map[El] = (Map[El] || 0) + 1;
+        }
+        return Map;
+    }
+
+    function FormulasMatch(Expected, Actual) {
+        if (!Expected || !Actual) return false;
+        const Keys = new Set([...Object.keys(Expected), ...Object.keys(Actual)]);
+        for (const K of Keys) {
+            if ((Expected[K] || 0) !== (Actual[K] || 0)) return false;
+        }
+        return true;
+    }
+
+    function ExtractInlineFormula(Query) {
+        const Q = String(Query || "");
+        const Patterns = [
+            /\b(C\d+H\d+(?:N\d+)?(?:O\d+)?(?:P\d+)?(?:S\d+)?)\b/gi,
+            /\b([A-Z][a-z]?(?:\d+[A-Z][a-z]?|\d+){1,14})\b/g
+        ];
+        for (const Re of Patterns) {
+            Re.lastIndex = 0;
+            let M;
+            while ((M = Re.exec(Q)) !== null) {
+                const F = ParseFormulaString(M[1]);
+                if (F && Object.keys(F).length >= 2) return F;
+            }
+        }
+        return null;
+    }
+
+    function ExtractSearchName(Query) {
+        let S = String(Query || "").trim();
+        S = S.replace(/^(make|create|build|spawn|generate|draw|show|give\s+me|i\s+want)\s+(me\s+)?(a\s+|an\s+|the\s+)?/i, "");
+        S = S.replace(/\s+(molecule|structure|compound|please|now|here)\s*$/i, "");
+        S = S.replace(/[?.!]+$/g, "").trim();
+        if (!S || S.length < 2) return null;
+        if (/^(clear|reset|wipe)/i.test(S)) return null;
+        if (/^spawn\s+\d+/i.test(S)) return null;
+        return S.slice(0, 80);
+    }
+
+    async function LookupPubChemFormula(Name) {
+        if (!Name) return null;
+        const Encoded = encodeURIComponent(Name);
+        const Url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${Encoded}/property/MolecularFormula,Title,IUPACName/JSON`;
+        try {
+            const Res = await fetch(Url, { method: "GET" });
+            if (!Res.ok) return null;
+            const Data = await Res.json();
+            const Props = Data?.PropertyTable?.Properties;
+            if (!Array.isArray(Props) || !Props.length) return null;
+            const FormulaStr = Props[0].MolecularFormula;
+            const Title = Props[0].Title || Props[0].IUPACName || Name;
+            const Formula = ParseFormulaString(FormulaStr);
+            if (!Formula) return null;
+            return { Formula, FormulaStr, Title: String(Title) };
+        } catch (Err) {
+            return null;
+        }
+    }
+
+    function ValidateSpawnPayload(Cmd, ExpectedFormula) {
+        if (!Cmd || Cmd.action !== "spawn") return { ok: false, reason: "not a spawn" };
+        const Atoms = Array.isArray(Cmd.atoms) ? Cmd.atoms : [];
+        if (Atoms.length < 1) return { ok: false, reason: "no atoms" };
+        if (Atoms.length > 160) return { ok: false, reason: "too many atoms" };
+        for (const Row of Atoms) {
+            if (!Array.isArray(Row) || Row.length < 4) return { ok: false, reason: "bad atom row" };
+            const Sym = String(Row[0] || "").trim();
+            if (!/^[A-Z][a-z]?$/.test(Sym)) return { ok: false, reason: "bad element symbol " + Sym };
+            for (let K = 1; K <= 3; K++) {
+                if (!isFinite(Number(Row[K]))) return { ok: false, reason: "non-numeric coordinate" };
+            }
+        }
+        const Bonds = Array.isArray(Cmd.bonds) ? Cmd.bonds : [];
+        for (const B of Bonds) {
+            if (!Array.isArray(B) || B.length < 2) return { ok: false, reason: "bad bond" };
+            const A = Number(B[0]);
+            const C = Number(B[1]);
+            if (!isFinite(A) || !isFinite(C) || A < 0 || C < 0 || A >= Atoms.length || C >= Atoms.length || A === C) {
+                return { ok: false, reason: "bond index out of range" };
+            }
+        }
+        if (ExpectedFormula) {
+            const Actual = CountAtomsFromList(Atoms);
+            if (!FormulasMatch(ExpectedFormula, Actual)) {
+                return {
+                    ok: false,
+                    reason: `stoichiometry mismatch: got ${FormulaToString(Actual)}, expected ${FormulaToString(ExpectedFormula)}`,
+                    actual: Actual,
+                    expected: ExpectedFormula
+                };
+            }
+        }
+        return { ok: true };
     }
 
     function ExtractJsonObject(Text) {
@@ -178,8 +316,7 @@
                 const Obj = JSON.parse(Cand);
                 if (
                     Obj &&
-                    (Object.prototype.hasOwnProperty.call(Obj, "id") ||
-                        Object.prototype.hasOwnProperty.call(Obj, "action") ||
+                    (Object.prototype.hasOwnProperty.call(Obj, "action") ||
                         Array.isArray(Obj.atoms))
                 ) {
                     return Obj;
@@ -197,8 +334,8 @@
     async function GroqChat(Messages, Extra = {}) {
         const Body = {
             model: GROQ_MODEL,
-            temperature: Extra.temperature ?? 0.15,
-            max_tokens: Extra.max_tokens ?? 4000,
+            temperature: Extra.temperature ?? 0.05,
+            max_tokens: Extra.max_tokens ?? 6000,
             messages: Messages
         };
         if (Extra.json !== false) {
@@ -223,66 +360,146 @@
         return Data.choices?.[0]?.message?.content || "";
     }
 
-    async function InterpretCommand(Query) {
-        // No element whitelist. No scene controls. AI invents the structure.
-        const System = `You control a 3D molecular physics simulator. Convert the user request into ONE JSON action object. No markdown, no prose, no commentary.
+    function BuildSystemPrompt(FormulaInfo) {
+        const FormulaBlock = FormulaInfo
+            ? `
+GROUND TRUTH FORMULA (from chemical database — MUST match exactly):
+- Name: ${FormulaInfo.Title}
+- Molecular formula: ${FormulaInfo.FormulaStr}
+- Required atom counts: ${JSON.stringify(FormulaInfo.Formula)}
+Your atoms array MUST contain exactly these counts. Wrong counts are invalid.`
+            : "";
 
-Allowed actions ONLY:
+        return `You control a 3D molecular physics simulator. Return ONE JSON action object only. No markdown, no prose.
+
+Allowed actions:
 {"action":"clear"}
 {"action":"spawn_elements","element":"U","count":1,"clear":false}
-{"action":"spawn","name":"optional","clear":true,"atoms":[["El",x,y,z],...],"bonds":[[i,j],...],"charges":[optional parallel array of net charges]}
+{"action":"spawn","name":"short-name","clear":true,"atoms":[["El",x,y,z],...],"bonds":[[i,j],...],"charges":[optional integers]}
 {"action":"unknown","message":"short reason"}
 
-Rules:
-- Only clear or spawn. Never change bath, friction, timescale, bounds, camera, or any other setting.
-- Any element symbol is allowed (H through Og, including U, Pu, Au, etc.). Use standard chemical symbols.
-- For "make X molecule / spawn ATP / create caffeine / build uranium hexafluoride / ..." return a spawn action with a realistic compact 3D layout.
-- atoms: array of [symbol, x, y, z]. Coordinates roughly in -400..400 so the molecule fits in view. Prefer ~1.0–1.6 Å scaled (~40–70 units between bonded atoms).
-- bonds: array of [indexA, indexB] into the atoms array. Include every covalent/ionic connection you intend.
-- charges: optional parallel array of integer net charges (e.g. [1,-1] for NaCl).
-- clear=true when the user says make / create / replace / only / build a molecule; clear=false when they say add / also spawn.
-- Prefer a full atom+bond geometry over vague names. The simulator does not look up a catalog for AI spawns.
-- Large molecules (ATP, DNA base, proteins fragments, etc.) are allowed; keep total atoms reasonable for real-time physics (aim under ~120 if possible, but do not refuse solely for size).
-- If the request is purely about temperature, friction, speed, bounds, UI, or anything non-spawn → {"action":"unknown","message":"..."}.
-- If truly impossible or nonsense → unknown with a short reason.`;
+Chemistry rules:
+- Use standard element symbols only (H, C, N, O, F, Na, P, S, Cl, Fe, U, ...).
+- When a ground-truth formula is provided, atom counts MUST match it exactly. Count every atom before answering.
+- Prefer correct connectivity and typical valences (H=1, O=2, N=3, C=4, P=5).
+- Nitro groups are -NO2 (N bonded to the ring/carbon and to two O). Do not invent extra hydrogens on aromatic carbons that are substituted.
+
+Layout rules (neat placement):
+- Place the molecule centered near the origin.
+- Bonded atoms ~48–65 units apart.
+- Avoid overlaps; keep non-bonded atoms at least ~35 units apart.
+- Prefer a roughly planar layout for aromatic rings (z near 0), with substituents slightly offset.
+- Keep overall span inside about -220..220 on each axis so it fits the view.
+- Order atoms logically (ring atoms first, then substituents) so bond indices are easy to follow.
+
+Other:
+- clear=true for make/create/build/replace; clear=false for add/also.
+- Only clear or spawn. Never change temperature, friction, timescale, bounds, or camera.
+- If the request is not a molecule/element spawn → {"action":"unknown","message":"..."}.${FormulaBlock}`;
+    }
+
+    async function ResolveFormula(Query) {
+        const Inline = ExtractInlineFormula(Query);
+        if (Inline) {
+            return {
+                Formula: Inline,
+                FormulaStr: FormulaToString(Inline),
+                Title: FormulaToString(Inline),
+                Source: "inline"
+            };
+        }
+        const Name = ExtractSearchName(Query);
+        if (!Name) return null;
+        const Hit = await LookupPubChemFormula(Name);
+        if (Hit) {
+            return { ...Hit, Source: "pubchem" };
+        }
+        const Simplified = Name.replace(/\b(molecule|compound|structure)\b/gi, "").trim();
+        if (Simplified && Simplified !== Name) {
+            const Hit2 = await LookupPubChemFormula(Simplified);
+            if (Hit2) return { ...Hit2, Source: "pubchem" };
+        }
+        return null;
+    }
+
+    async function InterpretCommand(Query, FormulaInfo) {
+        const System = BuildSystemPrompt(FormulaInfo);
+        const ExpectedFormula = FormulaInfo?.Formula || null;
 
         let LastErr = null;
         for (const Model of GROQ_MODELS) {
             GROQ_MODEL = Model;
             try {
-                const Text = await GroqChat(
+                let Text = await GroqChat(
                     [
                         { role: "system", content: System },
                         { role: "user", content: Query }
                     ],
-                    { temperature: 0.15, max_tokens: 4000 }
+                    { temperature: 0.05, max_tokens: 6000 }
                 );
                 let Parsed = ExtractJsonObject(Text);
+
+                if (Parsed && Parsed.action === "spawn") {
+                    let Check = ValidateSpawnPayload(Parsed, ExpectedFormula);
+                    if (!Check.ok && ExpectedFormula) {
+                        const RepairPrompt = `INVALID STRUCTURE: ${Check.reason}.
+Return a corrected JSON spawn for "${FormulaInfo.Title}" with EXACTLY these atom counts: ${JSON.stringify(ExpectedFormula)}.
+Use a neat centered layout, correct bonding (e.g. aromatic ring + proper substituents), only JSON.`;
+                        const Repair = await GroqChat(
+                            [
+                                { role: "system", content: System },
+                                { role: "user", content: Query },
+                                { role: "assistant", content: Text || "" },
+                                { role: "user", content: RepairPrompt }
+                            ],
+                            { temperature: 0, max_tokens: 6000 }
+                        );
+                        const Repaired = ExtractJsonObject(Repair);
+                        if (Repaired) {
+                            Check = ValidateSpawnPayload(Repaired, ExpectedFormula);
+                            if (Check.ok) Parsed = Repaired;
+                            else Parsed = null;
+                        } else {
+                            Parsed = null;
+                        }
+                    } else if (!Check.ok) {
+                        Parsed = null;
+                    }
+                }
+
                 if (!Parsed) {
                     const Retry = await GroqChat(
                         [
                             { role: "system", content: System },
                             { role: "user", content: Query },
-                            { role: "assistant", content: Text || "" },
-                            { role: "user", content: "Reply with ONLY a valid JSON action object from the schema." }
+                            {
+                                role: "user",
+                                content: ExpectedFormula
+                                    ? `Reply with ONLY valid JSON. atoms must match exactly ${JSON.stringify(ExpectedFormula)}. Neat 3D layout.`
+                                    : "Reply with ONLY a valid JSON action object."
+                            }
                         ],
-                        { temperature: 0 }
+                        { temperature: 0, max_tokens: 6000 }
                     );
                     Parsed = ExtractJsonObject(Retry);
+                    if (Parsed && Parsed.action === "spawn") {
+                        const Check = ValidateSpawnPayload(Parsed, ExpectedFormula);
+                        if (!Check.ok) Parsed = null;
+                    }
                 }
+
                 if (Parsed && Parsed.action) return Parsed;
                 if (Parsed && Array.isArray(Parsed.atoms)) {
-                    return {
+                    const Wrapped = {
                         action: "spawn",
                         clear: true,
                         atoms: Parsed.atoms,
                         bonds: Parsed.bonds || [],
                         charges: Parsed.charges,
-                        name: Parsed.name || "custom"
+                        name: Parsed.name || (FormulaInfo?.Title || "custom")
                     };
-                }
-                if (Parsed && Parsed.id) {
-                    return { action: "spawn_id", id: Parsed.id, clear: true };
+                    const Check = ValidateSpawnPayload(Wrapped, ExpectedFormula);
+                    if (Check.ok) return Wrapped;
                 }
                 LastErr = new Error("Model returned no valid action");
             } catch (Err) {
@@ -302,7 +519,7 @@ Rules:
         return null;
     }
 
-    function ExecuteAction(Cmd, OriginalText) {
+    function ExecuteAction(Cmd, OriginalText, FormulaInfo) {
         if (!Cmd || !Cmd.action) return { ok: false, message: "Unknown command." };
         const A = Cmd.action;
 
@@ -311,7 +528,6 @@ Rules:
             return { ok: true, message: "Cleared all atoms." };
         }
 
-        // Intentionally ignore scene-control actions if a model still emits them
         if (
             A === "set_bath" ||
             A === "set_friction" ||
@@ -331,18 +547,19 @@ Rules:
             return { ok: true, message: `Spawned ${N}× ${El}.` };
         }
 
-        if (A === "spawn_id") {
-            const Entry = MoleculeCatalog.find((M) => M.Id === Cmd.id);
-            if (!Entry) return { ok: false, message: "Unknown molecule id (offline catalog only)." };
-            const N = SpawnMolecule(Entry, Cmd.clear !== false);
-            return { ok: true, message: `Spawned ${Entry.Id} (${N} atoms).` };
-        }
-
         if (A === "spawn") {
             const Atoms = Array.isArray(Cmd.atoms) ? Cmd.atoms : [];
             if (!Atoms.length) return { ok: false, message: "Spawn had no atoms." };
+            const Expected = FormulaInfo?.Formula || null;
+            const Check = ValidateSpawnPayload(Cmd, Expected);
+            if (!Check.ok) {
+                return {
+                    ok: false,
+                    message: `Rejected structure (${Check.reason}).`
+                };
+            }
             const Entry = {
-                Id: Cmd.name || "custom",
+                Id: Cmd.name || FormulaInfo?.Title || "custom",
                 Atoms,
                 Bonds: Array.isArray(Cmd.bonds) ? Cmd.bonds : [],
                 Charges: Array.isArray(Cmd.charges) ? Cmd.charges : undefined
@@ -350,7 +567,10 @@ Rules:
             const Clear =
                 Cmd.clear !== false || /make\s+(me\s+)?|create\s+|build\s+|only\s+/i.test(OriginalText || "");
             const N = SpawnMolecule(Entry, Clear);
-            return { ok: true, message: `Spawned ${Entry.Id} (${N} atoms).` };
+            const Actual = CountAtomsFromList(Atoms);
+            const FormulaStr = FormulaToString(Actual);
+            const Src = FormulaInfo?.Source === "pubchem" ? " · PubChem verified" : "";
+            return { ok: true, message: `Spawned ${Entry.Id} (${N} atoms, ${FormulaStr}${Src}).` };
         }
 
         if (A === "unknown") {
@@ -367,19 +587,31 @@ Rules:
         const Local = TryLocalCommand(Text);
         if (Local) return { ok: true, message: Local };
 
+        const CatalogHit = LocalFallbackMatch(Text);
+        if (CatalogHit && /^(make|create|build|spawn)\s/i.test(Text) === false && Text.length < 12) {
+            const N = SpawnMolecule(CatalogHit, true);
+            return { ok: true, message: `Spawned ${CatalogHit.Id} (${N} atoms).` };
+        }
+
+        let FormulaInfo = null;
         try {
-            const Cmd = await InterpretCommand(Text);
-            return ExecuteAction(Cmd, Text);
+            FormulaInfo = await ResolveFormula(Text);
+        } catch (Err) {
+            FormulaInfo = null;
+        }
+
+        try {
+            const Cmd = await InterpretCommand(Text, FormulaInfo);
+            return ExecuteAction(Cmd, Text, FormulaInfo);
         } catch (Err) {
             console.warn("AI interpret failed", Err);
-            const Fb = LocalFallbackMatch(Text);
-            if (Fb) {
-                const N = SpawnMolecule(Fb, true);
-                return { ok: true, message: `Spawned ${Fb.Id} (${N} atoms | offline).` };
+            if (CatalogHit) {
+                const N = SpawnMolecule(CatalogHit, true);
+                return { ok: true, message: `Spawned ${CatalogHit.Id} (${N} atoms | offline).` };
             }
             return {
                 ok: false,
-                message: "Could not run that. Try: clear all | make water | make ATP | spawn 5 U"
+                message: "Could not build that molecule. Try a clearer name or formula (e.g. TNT, C7H5N3O6, glucose)."
             };
         }
     }
@@ -396,7 +628,7 @@ Rules:
 
                 const Hint = document.createElement("div");
                 Hint.className = "WHint";
-                Hint.textContent = "Natural language molecule spawn. clear is the only hardcoded command.";
+                Hint.textContent = "Names are checked against PubChem for the real formula, then the model builds the structure.";
                 Section.appendChild(Hint);
 
                 const Row = document.createElement("div");
@@ -404,7 +636,7 @@ Rules:
                 const Input = document.createElement("input");
                 Input.type = "text";
                 Input.className = "WText AiCmdInput";
-                Input.placeholder = "make ATP | spawn uranium | clear all…";
+                Input.placeholder = "TNT | glucose | caffeine | C7H5N3O6 | clear…";
                 Input.autocomplete = "off";
                 const RunBtn = document.createElement("button");
                 RunBtn.type = "button";
@@ -423,11 +655,12 @@ Rules:
                 const List = document.createElement("div");
                 List.className = "AiExampleList";
                 for (const Ex of [
-                    "make water",
-                    "make ATP molecule",
-                    "spawn 8 U",
-                    "create caffeine",
-                    "build UF6",
+                    "make TNT",
+                    "make glucose",
+                    "make caffeine",
+                    "make aspirin",
+                    "make UF6",
+                    "spawn 6 Fe",
                     "clear all"
                 ]) {
                     const Chip = document.createElement("button");
@@ -458,12 +691,12 @@ Rules:
                     if (!Text) return;
                     Busy = true;
                     RunBtn.disabled = true;
-                    SetStatus("Working…", true);
+                    SetStatus("Looking up & building…", true);
                     try {
                         const Result = await RunCommand(Text);
                         SetStatus(Result.message, Result.ok);
                     } catch (Err) {
-                        SetStatus(String(Err.message || Err).slice(0, 120), false);
+                        SetStatus(String(Err.message || Err).slice(0, 140), false);
                     } finally {
                         Busy = false;
                         RunBtn.disabled = false;
@@ -484,8 +717,8 @@ Rules:
     const Entry = {
         Id: "ai-helper",
         Name: "AI",
-        Version: "1.1.0",
-        Description: "Natural-language molecule spawner (clear only hardcoded)",
+        Version: "1.4.0",
+        Description: "PubChem-verified formulas + AI structure builder",
         Setup(Api) {
             Api.On("OpenPlugin", ({ Id }) => {
                 if (Id === "ai-helper") OpenWidget(Api);
